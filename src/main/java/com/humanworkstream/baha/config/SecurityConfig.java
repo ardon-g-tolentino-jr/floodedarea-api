@@ -52,9 +52,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT,    "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PATCH,  "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
-                // ── Flood reports: PATCH/DELETE are admin (resolve / remove); POST + confirm need login ──
+                // ── Flood reports: PATCH (resolve / reactivate) is admin. DELETE just needs a login;
+                //     the service enforces owner-or-admin so a reporter can remove their own report. ──
                 .requestMatchers(HttpMethod.PATCH,  "/reports/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.DELETE, "/reports/**").hasRole("ADMIN")
                 // ── Rescue requests: viewing/dispatching the queue is admin; POST /rescue needs login ──
                 .requestMatchers(HttpMethod.GET,    "/rescue/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PATCH,  "/rescue/**").hasRole("ADMIN")

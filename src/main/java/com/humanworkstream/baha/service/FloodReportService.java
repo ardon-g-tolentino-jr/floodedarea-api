@@ -11,8 +11,10 @@ import com.humanworkstream.baha.repository.FloodReportRepository;
 import com.humanworkstream.baha.repository.ReportConfirmationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
@@ -91,11 +93,21 @@ public class FloodReportService {
         });
     }
 
+    /**
+     * Delete a report. Admins may remove any report; a non-admin may remove only their own
+     * (matched on reporterUserId). Returns false if the report doesn't exist; throws 403 when a
+     * non-owner non-admin attempts it.
+     */
     @Transactional
-    public boolean delete(Integer id) {
-        if (!reportRepository.existsById(id)) return false;
+    public boolean delete(Integer id, int userId, boolean isAdmin) {
+        FloodReport report = reportRepository.findById(id).orElse(null);
+        if (report == null) return false;
+        if (!isAdmin && (report.getReporterUserId() == null || report.getReporterUserId() != userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only remove your own report.");
+        }
         reportRepository.deleteById(id);
         sse.broadcast("report-deleted", id);
+        log.info("[reports] deleted reportId={} by userId={} admin={}", id, userId, isAdmin);
         return true;
     }
 }

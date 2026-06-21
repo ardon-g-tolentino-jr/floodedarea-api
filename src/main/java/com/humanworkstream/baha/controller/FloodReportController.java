@@ -16,8 +16,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * Flood reports. Reading is public; creating/confirming needs a login; resolving/deleting is
- * ADMIN-only (enforced in SecurityConfig).
+ * Flood reports. Reading is public; creating/confirming needs a login; resolving (PATCH) is
+ * ADMIN-only; deleting needs a login and is owner-or-admin (enforced in the service).
  */
 @RestController
 @RequestMapping("/reports")
@@ -56,7 +56,9 @@ public class FloodReportController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Integer id) {
-        return service.delete(id) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    public ResponseEntity<Void> delete(@PathVariable Integer id, Authentication auth) {
+        int userId = SecurityUtils.requireUserId(auth);
+        boolean admin = SecurityUtils.isAdmin(auth);
+        return service.delete(id, userId, admin) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 }
