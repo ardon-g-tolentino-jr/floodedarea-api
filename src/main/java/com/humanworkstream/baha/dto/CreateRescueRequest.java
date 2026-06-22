@@ -6,5 +6,6 @@ import jakarta.validation.constraints.NotNull;
 public record CreateRescueRequest(
         @NotNull Double latitude,
         @NotNull Double longitude,
-        String note
+        String note,
+        String district
 ) {}
