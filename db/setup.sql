@@ -38,7 +38,7 @@ END $$;
 --   pgcrypto provides crypt()/gen_salt('bf') used by user_creation.sql to
 --   generate BCrypt password hashes compatible with Spring's BCryptPasswordEncoder.
 -- ──────────────────────────────────────────────
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 -- ──────────────────────────────────────────────
 -- Schema
@@ -199,7 +199,8 @@ CREATE TABLE IF NOT EXISTS rescue_request (
     note       TEXT,
     status     rescue_status_t NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_requested_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE OR REPLACE TRIGGER trg_rescue_request_updated_at
@@ -217,6 +218,7 @@ ALTER TABLE app_user     ADD COLUMN IF NOT EXISTS home_lat   NUMERIC(9,6);
 ALTER TABLE app_user     ADD COLUMN IF NOT EXISTS home_lng   NUMERIC(9,6);
 ALTER TABLE flood_report ADD COLUMN IF NOT EXISTS status     report_status_t NOT NULL DEFAULT 'active';
 ALTER TABLE flood_report ADD COLUMN IF NOT EXISTS reporter_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL;
+ALTER TABLE rescue_request ADD COLUMN IF NOT EXISTS last_requested_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 -- ──────────────────────────────────────────────
 -- Indexes — foreign keys & hot paths (all IF NOT EXISTS)
@@ -231,6 +233,7 @@ CREATE INDEX IF NOT EXISTS idx_report_confirmation_user   ON report_confirmation
 
 CREATE INDEX IF NOT EXISTS idx_rescue_request_status      ON rescue_request(status);
 CREATE INDEX IF NOT EXISTS idx_rescue_request_user        ON rescue_request(user_id);
+CREATE INDEX IF NOT EXISTS idx_rescue_request_user_status ON rescue_request(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_rescue_request_created_at  ON rescue_request(created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_flood_alert_active         ON flood_alert(active) WHERE active = true;
