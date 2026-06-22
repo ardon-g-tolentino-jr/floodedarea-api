@@ -16,8 +16,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * SOS rescue requests. Any logged-in user can POST one; viewing the queue and advancing its
- * status are ADMIN-only (SecurityConfig).
+ * SOS rescue requests. Any logged-in user can POST one and view the queue (which powers the
+ * per-district chart); advancing/clearing a request's status (PATCH/DELETE) is ADMIN-only
+ * (SecurityConfig).
  */
 @RestController
 @RequestMapping("/rescue")

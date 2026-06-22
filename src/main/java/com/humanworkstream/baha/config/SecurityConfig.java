@@ -55,8 +55,9 @@ public class SecurityConfig {
                 // ── Flood reports: PATCH (resolve / reactivate) is admin. DELETE just needs a login;
                 //     the service enforces owner-or-admin so a reporter can remove their own report. ──
                 .requestMatchers(HttpMethod.PATCH,  "/reports/**").hasRole("ADMIN")
-                // ── Rescue requests: viewing/dispatching the queue is admin; POST /rescue needs login ──
-                .requestMatchers(HttpMethod.GET,    "/rescue/**").hasRole("ADMIN")
+                // ── Rescue requests: any signed-in user can view the queue (powers the
+                //     per-district chart); dispatching (PATCH/DELETE) stays admin; POST needs login ──
+                .requestMatchers(HttpMethod.GET,    "/rescue/**").authenticated()
                 .requestMatchers(HttpMethod.PATCH,  "/rescue/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/rescue/**").hasRole("ADMIN")
                 // ── Everything else (POST /reports, POST /reports/{id}/confirm, POST /rescue,
