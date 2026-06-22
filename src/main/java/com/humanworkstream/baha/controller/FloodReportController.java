@@ -8,11 +8,13 @@ import com.humanworkstream.baha.security.SecurityUtils;
 import com.humanworkstream.baha.service.FloodReportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -29,6 +31,15 @@ public class FloodReportController {
     @GetMapping
     public List<FloodReport> list(@RequestParam(required = false) Severity severity) {
         return service.findActive(severity);
+    }
+
+    /** Reports created in [from, to) regardless of status — powers the water-level history chart.
+     *  The client passes the selected local day's bounds as ISO instants. */
+    @GetMapping("/history")
+    public List<FloodReport> history(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to) {
+        return service.history(from, to);
     }
 
     @GetMapping("/{id}")
