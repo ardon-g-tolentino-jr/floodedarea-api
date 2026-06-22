@@ -33,6 +33,9 @@ public class RescueRequest {
 
     private String note;
 
+    /** Sender's district, reverse-geocoded client-side; powers the per-district rescue chart. */
+    private String district;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(nullable = false, columnDefinition = "rescue_status_t")
