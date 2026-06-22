@@ -7,5 +7,7 @@ public record CreateRescueRequest(
         @NotNull Double latitude,
         @NotNull Double longitude,
         String note,
-        String district
+        String district,
+        String city,
+        String barangay
 ) {}

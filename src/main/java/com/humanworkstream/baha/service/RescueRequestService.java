@@ -47,6 +47,8 @@ public class RescueRequestService {
             existing.setLongitude(req.longitude());
             existing.setNote(req.note());
             existing.setDistrict(req.district());
+            existing.setCity(req.city());
+            existing.setBarangay(req.barangay());
             existing.setLastRequestedAt(OffsetDateTime.now());
             RescueRequest saved = repository.save(existing);
             sse.broadcast("rescue-updated", saved.getId());
@@ -60,6 +62,8 @@ public class RescueRequestService {
         r.setLongitude(req.longitude());
         r.setNote(req.note());
         r.setDistrict(req.district());
+        r.setCity(req.city());
+        r.setBarangay(req.barangay());
         r.setStatus(RescueStatus.pending);
         RescueRequest saved = repository.save(r);
         sse.broadcast("rescue-created", saved.getId());

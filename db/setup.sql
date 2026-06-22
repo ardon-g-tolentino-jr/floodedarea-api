@@ -198,6 +198,8 @@ CREATE TABLE IF NOT EXISTS rescue_request (
     longitude  NUMERIC(9,6) NOT NULL,
     note       TEXT,
     district   TEXT,
+    city       TEXT,
+    barangay   TEXT,
     status     rescue_status_t NOT NULL DEFAULT 'pending',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -221,6 +223,8 @@ ALTER TABLE flood_report ADD COLUMN IF NOT EXISTS status     report_status_t NOT
 ALTER TABLE flood_report ADD COLUMN IF NOT EXISTS reporter_user_id INTEGER REFERENCES app_user(id) ON DELETE SET NULL;
 ALTER TABLE rescue_request ADD COLUMN IF NOT EXISTS last_requested_at TIMESTAMPTZ NOT NULL DEFAULT now();
 ALTER TABLE rescue_request ADD COLUMN IF NOT EXISTS district TEXT;
+ALTER TABLE rescue_request ADD COLUMN IF NOT EXISTS city     TEXT;
+ALTER TABLE rescue_request ADD COLUMN IF NOT EXISTS barangay TEXT;
 
 -- ──────────────────────────────────────────────
 -- Indexes — foreign keys & hot paths (all IF NOT EXISTS)
