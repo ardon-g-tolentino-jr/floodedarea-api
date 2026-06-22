@@ -27,7 +27,9 @@
 --   "set a new password" flow.
 -- ============================================================================
 
-SET search_path TO baha;
+-- Include `public` so pgcrypto's crypt()/gen_salt() (installed there by
+-- setup.sql) are resolvable; `baha` stays first for the app tables.
+SET search_path TO baha, public;
 
 -- Platform ADMIN — insert if absent (idempotent).
 INSERT INTO app_user (email, password_hash, name, role, provider, is_new)
