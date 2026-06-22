@@ -44,11 +44,16 @@ public class RescueRequest {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
+    /** When this request was last (re)submitted by the sender; anchors the dedup window. */
+    @Column(name = "last_requested_at", nullable = false)
+    private OffsetDateTime lastRequestedAt;
+
     @PrePersist
     void onCreate() {
         OffsetDateTime now = OffsetDateTime.now();
         if (createdAt == null) createdAt = now;
         if (updatedAt == null) updatedAt = now;
+        if (lastRequestedAt == null) lastRequestedAt = now;
         if (status == null) status = RescueStatus.pending;
     }
 
