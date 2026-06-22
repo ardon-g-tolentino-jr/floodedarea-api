@@ -60,6 +60,12 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET,    "/rescue/**").authenticated()
                 .requestMatchers(HttpMethod.PATCH,  "/rescue/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/rescue/**").hasRole("ADMIN")
+                // ── Feedback: submitting + reading accepted features needs a login; the moderation
+                //     queue and accept/decline are admin ──
+                .requestMatchers(HttpMethod.GET,    "/feedback/accepted").authenticated()
+                .requestMatchers(HttpMethod.POST,   "/feedback").authenticated()
+                .requestMatchers(HttpMethod.GET,    "/feedback").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PATCH,  "/feedback/**").hasRole("ADMIN")
                 // ── Everything else (POST /reports, POST /reports/{id}/confirm, POST /rescue,
                 //     GET /auth/me) requires a valid JWT ──
                 .anyRequest().authenticated()
