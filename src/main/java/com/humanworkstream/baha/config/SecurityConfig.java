@@ -41,8 +41,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // ── Auth — public ──
                 .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/google", "/auth/register").permitAll()
-                // ── Public reads (anyone can view the flood map / shelters / hotlines / alerts) ──
-                .requestMatchers(HttpMethod.GET, "/reports/**", "/centers/**", "/hotlines/**", "/alerts/**").permitAll()
+                // ── Public reads (anyone can view the flood map / shelters / hotlines / alerts / road conditions) ──
+                .requestMatchers(HttpMethod.GET, "/reports/**", "/centers/**", "/hotlines/**", "/alerts/**", "/road-status").permitAll()
                 // ── SSE live activity feed — public read ──
                 .requestMatchers(HttpMethod.GET, "/sse/**").permitAll()
                 // ── Health & error — public ──
