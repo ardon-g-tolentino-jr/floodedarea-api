@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,6 +39,12 @@ public class FloodReportService {
     @Transactional(readOnly = true)
     public List<FloodReport> findAll() {
         return reportRepository.findAllByOrderByCreatedAtDesc();
+    }
+
+    /** Reports created in [from, to) regardless of status — for the water-level history chart. */
+    @Transactional(readOnly = true)
+    public List<FloodReport> history(OffsetDateTime from, OffsetDateTime to) {
+        return reportRepository.findByCreatedAtBetweenOrderByCreatedAtAsc(from, to);
     }
 
     @Transactional(readOnly = true)
