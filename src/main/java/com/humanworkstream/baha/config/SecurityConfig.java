@@ -47,6 +47,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/sse/**").permitAll()
                 // ── Health & error — public ──
                 .requestMatchers("/healthcheck", "/error").permitAll()
+                // ── Visit counter — public read + public increment (no sign-in; fires on page load) ──
+                .requestMatchers(HttpMethod.GET,  "/stats/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/stats/visit").permitAll()
                 // ── Admin-only management writes ──
                 .requestMatchers(HttpMethod.POST,   "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT,    "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
