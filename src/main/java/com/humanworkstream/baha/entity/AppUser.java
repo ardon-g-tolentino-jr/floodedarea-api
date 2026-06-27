@@ -50,6 +50,10 @@ public class AppUser {
     @Column(name = "is_new", nullable = false)
     private Boolean isNew = true;
 
+    /** Stable per-device id for no-login GUEST accounts; null for real (email) accounts. */
+    @Column(name = "device_id", unique = true)
+    private String deviceId;
+
     @Column(name = "area_label")
     private String areaLabel;
 

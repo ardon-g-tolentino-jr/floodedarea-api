@@ -2,6 +2,7 @@ package com.humanworkstream.baha.controller;
 
 import com.humanworkstream.baha.dto.AuthResponse;
 import com.humanworkstream.baha.dto.GoogleAuthRequest;
+import com.humanworkstream.baha.dto.GuestAuthRequest;
 import com.humanworkstream.baha.dto.LoginRequest;
 import com.humanworkstream.baha.dto.RegisterRequest;
 import com.humanworkstream.baha.entity.AppUser;
@@ -42,6 +43,13 @@ public class AuthController {
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest req) {
         AppUser user = userService.register(req.email(), req.password(), req.name());
         return ResponseEntity.status(HttpStatus.CREATED).body(session(user));
+    }
+
+    /** No-login guest session, keyed on a client-minted device id. Public; idempotent per device. */
+    @PostMapping("/guest")
+    public ResponseEntity<AuthResponse> guest(@Valid @RequestBody GuestAuthRequest req) {
+        AppUser user = userService.findOrCreateGuest(req.deviceId());
+        return ResponseEntity.ok(session(user));
     }
 
     @PostMapping("/google")

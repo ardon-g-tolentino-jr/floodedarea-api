@@ -1,5 +1,6 @@
 package com.humanworkstream.baha.service;
 
+import com.humanworkstream.baha.config.GeofenceProperties;
 import com.humanworkstream.baha.dto.CreateReportRequest;
 import com.humanworkstream.baha.entity.FloodReport;
 import com.humanworkstream.baha.entity.ReportConfirmation;
@@ -7,6 +8,7 @@ import com.humanworkstream.baha.enumeration.ReportStatus;
 import com.humanworkstream.baha.enumeration.Road;
 import com.humanworkstream.baha.enumeration.Severity;
 import com.humanworkstream.baha.enumeration.Trend;
+import com.humanworkstream.baha.enumeration.UserRole;
 import com.humanworkstream.baha.repository.FloodReportRepository;
 import com.humanworkstream.baha.repository.ReportConfirmationRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,8 @@ public class FloodReportService {
     private final FloodReportRepository reportRepository;
     private final ReportConfirmationRepository confirmationRepository;
     private final ActivitySseService sse;
+    private final GeofenceProperties geofence;
+    private final TurnstileVerifier turnstile;
 
     @Transactional(readOnly = true)
     public List<FloodReport> findActive(Severity severity) {
@@ -53,7 +57,17 @@ public class FloodReportService {
     }
 
     @Transactional
-    public FloodReport create(CreateReportRequest req, Integer reporterUserId) {
+    public FloodReport create(CreateReportRequest req, Integer reporterUserId, UserRole role, String clientIp) {
+        // Reject coordinates outside the service area — cheap guard against junk/abuse.
+        if (geofence.isEnabled() && !geofence.contains(req.latitude(), req.longitude())) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "That location is outside the coverage area (Metro Manila & Rizal).");
+        }
+        // No-login guests must clear CAPTCHA when Turnstile is configured (no-op otherwise).
+        if (role == UserRole.GUEST && !turnstile.verify(req.captchaToken(), clientIp)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Could not verify you are human. Please try again.");
+        }
         FloodReport r = new FloodReport();
         r.setName(req.name());
         r.setDistrict(req.district());
@@ -66,6 +80,8 @@ public class FloodReportService {
         r.setReportsCount(1);
         r.setStatus(ReportStatus.active);
         r.setReporterUserId(reporterUserId);
+        // Denormalized author trust for the UI: guest reports render as provisional/unverified.
+        r.setReporterTrust(role == UserRole.GUEST ? "guest" : "verified");
         FloodReport saved = reportRepository.save(r);
         // The reporter implicitly confirms their own report.
         if (reporterUserId != null) {

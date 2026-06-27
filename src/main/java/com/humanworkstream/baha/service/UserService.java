@@ -52,6 +52,33 @@ public class UserService {
         return saved;
     }
 
+    /**
+     * Find (or lazily create) the no-login GUEST account for a device. Idempotent per deviceId, so a
+     * returning guest keeps the same userId — which is what makes the "one active report per guest"
+     * spam guard and the ownership checks work for guests just as for full accounts.
+     */
+    @Transactional
+    public AppUser findOrCreateGuest(String deviceId) {
+        String id = deviceId == null ? "" : deviceId.trim();
+        if (id.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A device id is required for guest access.");
+        }
+        return repository.findByDeviceId(id).orElseGet(() -> {
+            AppUser user = new AppUser();
+            // Synthesize a unique, non-routable email to satisfy the NOT NULL/UNIQUE constraint;
+            // guests never sign in by email (password_hash stays null).
+            user.setEmail("guest-" + id + "@guest.local");
+            user.setName("Guest");
+            user.setRole(UserRole.GUEST);
+            user.setProvider(AuthProvider.LOCAL);
+            user.setIsNew(false);
+            user.setDeviceId(id);
+            AppUser saved = repository.save(user);
+            log.info("[users] provisioned guest userId={} device={}", saved.getId(), id);
+            return saved;
+        });
+    }
+
     /** Find the user for a verified Google identity, creating a Google-only account on first sign-in. */
     @Transactional
     public AppUser findOrCreateGoogleUser(String email, String name, String picture) {

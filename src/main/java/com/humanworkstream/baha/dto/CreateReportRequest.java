@@ -15,5 +15,7 @@ public record CreateReportRequest(
         @NotNull Severity severity,
         @NotNull Integer depthCm,
         Trend trend,
-        Road road
+        Road road,
+        /** Cloudflare Turnstile token; required for GUEST submissions when Turnstile is enabled. */
+        String captchaToken
 ) {}

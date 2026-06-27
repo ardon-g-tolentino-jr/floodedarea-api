@@ -40,7 +40,7 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 // ── Auth — public ──
-                .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/google", "/auth/register").permitAll()
+                .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/google", "/auth/register", "/auth/guest").permitAll()
                 // ── Public reads (anyone can view the flood map / shelters / hotlines / alerts / road conditions) ──
                 .requestMatchers(HttpMethod.GET, "/reports/**", "/centers/**", "/hotlines/**", "/alerts/**", "/road-status").permitAll()
                 // ── SSE live activity feed — public read ──
@@ -58,19 +58,21 @@ public class SecurityConfig {
                 // ── Flood reports: PATCH (resolve / reactivate) is admin. DELETE just needs a login;
                 //     the service enforces owner-or-admin so a reporter can remove their own report. ──
                 .requestMatchers(HttpMethod.PATCH,  "/reports/**").hasRole("ADMIN")
-                // ── Rescue requests: any signed-in user can view the queue (powers the
-                //     per-district chart); dispatching (PATCH/DELETE) stays admin; POST needs login ──
-                .requestMatchers(HttpMethod.GET,    "/rescue/**").authenticated()
+                // ── Rescue requests: a real (non-guest) account can SOS and view the queue (which
+                //     powers the per-district chart); dispatching (PATCH/DELETE) stays admin. GUESTs
+                //     are excluded — SOS has the highest abuse cost (false rescue dispatch). ──
+                .requestMatchers(HttpMethod.POST,   "/rescue").hasAnyRole("CITIZEN", "ADMIN")
+                .requestMatchers(HttpMethod.GET,    "/rescue/**").hasAnyRole("CITIZEN", "ADMIN")
                 .requestMatchers(HttpMethod.PATCH,  "/rescue/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/rescue/**").hasRole("ADMIN")
-                // ── Feedback: submitting + reading accepted features needs a login; the moderation
-                //     queue and accept/decline are admin ──
-                .requestMatchers(HttpMethod.GET,    "/feedback/accepted").authenticated()
-                .requestMatchers(HttpMethod.POST,   "/feedback").authenticated()
+                // ── Feedback: submitting + reading accepted features needs a real (non-guest)
+                //     account; the moderation queue and accept/decline are admin ──
+                .requestMatchers(HttpMethod.GET,    "/feedback/accepted").hasAnyRole("CITIZEN", "ADMIN")
+                .requestMatchers(HttpMethod.POST,   "/feedback").hasAnyRole("CITIZEN", "ADMIN")
                 .requestMatchers(HttpMethod.GET,    "/feedback").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PATCH,  "/feedback/**").hasRole("ADMIN")
-                // ── Everything else (POST /reports, POST /reports/{id}/confirm, POST /rescue,
-                //     GET /auth/me) requires a valid JWT ──
+                // ── Everything else requires a valid JWT. GUESTs are allowed here: POST /reports,
+                //     POST /reports/{id}/confirm, DELETE /reports/{id} (own), GET /auth/me. ──
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

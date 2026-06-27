@@ -5,7 +5,9 @@ import com.humanworkstream.baha.dto.UpdateReportStatusRequest;
 import com.humanworkstream.baha.entity.FloodReport;
 import com.humanworkstream.baha.enumeration.Severity;
 import com.humanworkstream.baha.security.SecurityUtils;
+import com.humanworkstream.baha.security.UserPrincipal;
 import com.humanworkstream.baha.service.FloodReportService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -48,9 +50,18 @@ public class FloodReportController {
     }
 
     @PostMapping
-    public ResponseEntity<FloodReport> create(@Valid @RequestBody CreateReportRequest req, Authentication auth) {
-        int userId = SecurityUtils.requireUserId(auth);
-        return ResponseEntity.status(HttpStatus.CREATED).body(service.create(req, userId));
+    public ResponseEntity<FloodReport> create(@Valid @RequestBody CreateReportRequest req,
+                                              Authentication auth, HttpServletRequest request) {
+        UserPrincipal p = SecurityUtils.requirePrincipal(auth);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(service.create(req, p.userId(), p.role(), clientIp(request)));
+    }
+
+    /** Real client IP behind a reverse proxy (X-Forwarded-For), falling back to the socket. */
+    private static String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) return forwarded.split(",")[0].trim();
+        return request.getRemoteAddr();
     }
 
     @PostMapping("/{id}/confirm")

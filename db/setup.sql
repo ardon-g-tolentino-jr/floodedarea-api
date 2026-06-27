@@ -281,3 +281,24 @@ FROM evacuation_center c;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA baha TO baha_user;
 GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA baha TO baha_user;
 GRANT SELECT                         ON ALL TABLES    IN SCHEMA baha TO baha_user;
+
+-- ──────────────────────────────────────────────
+-- feat/guest-reporting — no-login guest accounts + report author trust.
+--   Appended (idempotent). See db/migrations/feat/guest-reporting/.
+-- ──────────────────────────────────────────────
+-- GUEST role for no-login device sessions (report + confirm only; no SOS/feedback).
+ALTER TYPE user_role_t ADD VALUE IF NOT EXISTS 'GUEST';
+
+-- Stable per-device id for guest accounts; NULL for real (email) accounts. A plain unique index
+-- still allows many NULLs (Postgres treats NULLs as distinct).
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS device_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_app_user_device_id ON app_user(device_id);
+
+-- Denormalized author trust per report: 'verified' (real account) or 'guest' (no-login).
+ALTER TABLE flood_report ADD COLUMN IF NOT EXISTS reporter_trust TEXT NOT NULL DEFAULT 'verified';
+DO $$ BEGIN
+    ALTER TABLE flood_report ADD CONSTRAINT flood_report_reporter_trust_check
+        CHECK (reporter_trust IN ('verified','guest'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA baha TO baha_user;

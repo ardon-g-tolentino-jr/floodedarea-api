@@ -66,6 +66,10 @@ public class FloodReport {
     @Column(name = "reporter_user_id")
     private Integer reporterUserId;
 
+    /** Author trust tier exposed to the UI: "verified" (a real account) or "guest" (no-login). */
+    @Column(name = "reporter_trust", nullable = false)
+    private String reporterTrust;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -81,6 +85,7 @@ public class FloodReport {
         if (trend == null) trend = Trend.steady;
         if (road == null) road = Road.risky;
         if (reportsCount == null) reportsCount = 1;
+        if (reporterTrust == null) reporterTrust = "verified";
     }
 
     @PreUpdate
