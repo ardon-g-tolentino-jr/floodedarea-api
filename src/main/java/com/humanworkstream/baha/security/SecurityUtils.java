@@ -22,6 +22,12 @@ public final class SecurityUtils {
         return requirePrincipal(auth).userId();
     }
 
+    /** The caller's user id when authenticated, or {@code null} for an anonymous request. Used by
+     *  public endpoints that personalize their response (e.g. the feedback board's "upvotedByMe"). */
+    public static Integer optionalUserId(Authentication auth) {
+        return (auth != null && auth.getPrincipal() instanceof UserPrincipal p) ? p.userId() : null;
+    }
+
     /** True when an authenticated ADMIN is present. */
     public static boolean isAdmin(Authentication auth) {
         return auth != null

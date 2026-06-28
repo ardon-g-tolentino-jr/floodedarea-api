@@ -65,10 +65,12 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET,    "/rescue/**").hasAnyRole("CITIZEN", "ADMIN")
                 .requestMatchers(HttpMethod.PATCH,  "/rescue/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/rescue/**").hasRole("ADMIN")
-                // ── Feedback: submitting + reading accepted features needs a real (non-guest)
-                //     account; the moderation queue and accept/decline are admin ──
-                .requestMatchers(HttpMethod.GET,    "/feedback/accepted").hasAnyRole("CITIZEN", "ADMIN")
-                .requestMatchers(HttpMethod.POST,   "/feedback").hasAnyRole("CITIZEN", "ADMIN")
+                // ── Feedback: the accepted board is a PUBLIC read; submitting and upvoting need only
+                //     a session (GUESTs allowed, like report posting — guest submits clear a CAPTCHA in
+                //     the service); the moderation queue and accept/decline stay admin ──
+                .requestMatchers(HttpMethod.GET,    "/feedback/accepted").permitAll()
+                .requestMatchers(HttpMethod.POST,   "/feedback").authenticated()
+                .requestMatchers(HttpMethod.POST,   "/feedback/*/upvote").authenticated()
                 .requestMatchers(HttpMethod.GET,    "/feedback").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PATCH,  "/feedback/**").hasRole("ADMIN")
                 // ── Everything else requires a valid JWT. GUESTs are allowed here: POST /reports,

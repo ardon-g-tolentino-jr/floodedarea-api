@@ -12,8 +12,10 @@ import org.hibernate.type.SqlTypes;
 import java.time.OffsetDateTime;
 
 /**
- * A logged-in user's bug report or feature request. Admins accept feature requests in the console;
- * accepted features are shown to all registered users. {@code submitterName} snapshots the author.
+ * A bug report or feature request. Anyone (including a no-login guest) can submit one; admins
+ * accept/decline in the console, and accepted items — bugs and features alike — appear on the public
+ * Community feedback board where anyone can upvote. {@code submitterName} snapshots the author.
+ * {@code upvotes}/{@code upvotedByMe} are derived per request (not persisted on this row).
  */
 @Entity
 @Table(name = "feedback")
@@ -52,6 +54,14 @@ public class Feedback {
 
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    /** Total community upvotes (derived from feedback_upvote; not a column). */
+    @Transient
+    private int upvotes;
+
+    /** Whether the current caller (account or guest) has upvoted this item (derived; not a column). */
+    @Transient
+    private boolean upvotedByMe;
 
     @PrePersist
     void onCreate() {
