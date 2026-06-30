@@ -4,6 +4,28 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [fix/chat-bubble-label] — 2026-06-30
+
+**Summary:** Make the community-chat launcher more discoverable, especially on mobile, where the
+icon-only circle was easy to miss.
+
+### Frontend
+- `src/components/panels/ChatWidget.tsx`: the collapsed launcher is now a labeled **"💬 Chat"**
+  pill (was a 56px icon-only circle) with a stronger shadow. Position unchanged (bottom-right;
+  mobile `bottom: 84`, desktop `bottom: 24`).
+- UI version bumped `1.33.1 → 1.33.2` (patch). `dist/` rebuilt.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no · Migration: none · Rollback: none
+
+### Testing
+- `npm run typecheck` passes; pill verified in `npm run preview`.
+
+---
+
 ## [fix/hide-statcounter-and-donation] — 2026-06-30
 
 **Summary:** Temporarily hide two peripheral UI elements (easy to restore): the visible
