@@ -4,6 +4,51 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [feat/community-chat] — 2026-06-30
+
+**Summary:** Add a free, anonymous community chatroom so flood-watchers can talk in real time
+during storms — embedded as a third-party **tlk.io** room, so there is **no backend, no
+database, and no new domain types**. It surfaces as a floating chat bubble (bottom-right) that
+expands into a panel; the room iframe is lazy-loaded on first open and kept mounted while
+collapsed so the conversation persists.
+
+### Frontend
+- New `src/components/panels/ChatWidget.tsx` — self-contained floating bubble + expandable
+  panel (desktop card / mobile bottom sheet) embedding `https://tlk.io/floodedarea` via a direct
+  `<iframe>`. Owns its own open/mounted state (mirrors TopBar's `menuOpen`), so `App.tsx` only
+  renders it once. Open to everyone incl. guests; no auth gate; anonymous (tlk.io prompts for a
+  per-user nickname — no identity is passed from the app).
+  - Note: tlk.io's `embed.js` is **not** used — it auto-scans for its container on
+    `DOMContentLoaded`, which has already fired in this SPA, so it never renders. A direct iframe
+    is deterministic and tlk.io allows framing (verified — no `X-Frame-Options` block).
+- `src/App.tsx`: import + render `<ChatWidget isMobile={isMobile} />` alongside the other
+  overlays. No new App state/handlers.
+- UI version bumped `1.32.1 → 1.33.0` (new feature). `dist/` rebuilt.
+
+### Backend
+- None. tlk.io is a third-party hosted service.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback: none
+
+### Config / Env
+- None. No CSP is configured, so the iframe works as-is. If a CSP is later added it must allow
+  `frame-src https://tlk.io`.
+
+### Testing
+- `npm run typecheck` passes. Verified in the production build (`npm run preview`): bubble opens
+  the panel, the tlk.io room loads inside the branded header, anonymous join prompt shows, and
+  there are no framing/CSP/mixed-content console errors.
+
+### Play Store follow-ups (tracked, not blockers)
+- Anonymous UGC ⇒ before TWA submission, add a report/flag path + community guidelines and
+  designate a room moderator (Play UGC policy); disclose **tlk.io** as a third-party chat
+  processor in the privacy policy + data-safety form (see `baha-ui/PLAYSTORE_PACKAGE.md`).
+
+---
+
 ## [feat/feedback-upvotes] — 2026-06-28
 
 **Summary:** Turn feedback into a public, upvotable Community feedback board. Anyone — including
