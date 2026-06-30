@@ -4,6 +4,38 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [fix/hide-statcounter-and-donation] — 2026-06-30
+
+**Summary:** Temporarily hide two peripheral UI elements (easy to restore): the visible
+Statcounter badge and the "keep the lights on" GCash donation section. Analytics tracking is
+preserved.
+
+### Frontend
+- `index.html`: Statcounter `sc_invisible = 0 → 1` — hides the visible counter badge while
+  `counter.js` still loads and tracks (verified: tracking pings fire with `invisible=1`).
+- `src/components/panels/SupportModal.tsx`: the "Support / donate" block (the "Help keep the
+  lights on" heading, copy, and collapsible GCash QR) is commented out for now. The `qrSrc`
+  prop is left undestructured and the `qrOpen` state removed to satisfy `noUnusedLocals`; both
+  noted inline for restoration. The rest of the modal (intro, "report only the truth" callout,
+  Continue button) is unchanged.
+- UI version bumped `1.33.0 → 1.33.1` (patch). `dist/` rebuilt.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no · Migration: none · Rollback: none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` passes; verified in `npm run preview`: donation section gone with the rest
+  of the Support modal intact, no visible Statcounter badge, and Statcounter `counter.js` + pings
+  still load (`invisible=1`).
+
+---
+
 ## [feat/community-chat] — 2026-06-30
 
 **Summary:** Add a free, anonymous community chatroom so flood-watchers can talk in real time
