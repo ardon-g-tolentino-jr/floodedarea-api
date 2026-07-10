@@ -4,6 +4,35 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [fix/persistent-login] — 2026-07-10
+
+**Summary:** Keep users signed in until they explicitly Sign out. The UI now persists the session in
+`localStorage` (was per-tab `sessionStorage`, which dropped on tab close/reopen/back-navigation);
+this backend change lengthens the JWT lifetime so the token doesn't expire during normal use and
+force a re-login. The 401/403 auto-logout stays as the revocation path for a genuinely invalid token.
+
+### Frontend
+- baha-ui v1.40.1: auth profile + JWT moved from `sessionStorage` → `localStorage` (`useAuth.ts`,
+  `client.ts`), with a one-time migration of any legacy per-tab session; Sign out clears both stores.
+
+### Backend
+- `jwt.expiration-ms` default raised from `86400000` (24h) to `2592000000` (30 days) in
+  `application.properties` and `application-dev.properties`. `JwtUtil` already applies it to the
+  token `exp`; no Java change. `JWT_EXPIRATION_MS` env override still wins in prod.
+
+### Database
+- setup.sql appended: no · Migration: none · Rollback: none
+
+### Config / Env
+- `JWT_EXPIRATION_MS` default is now 30 days (2592000000 ms). Set it lower to shorten sessions.
+
+### Testing
+- Booted baha-api; logged in; decoded the issued JWT `exp` → ~30 days out (was ~24h). Authed request
+  (`POST /reports`) still succeeds. Frontend: signed in, opened a new tab / reloaded → still signed
+  in; Sign out → cleared; legacy `sessionStorage` session migrates forward on first load.
+
+---
+
 ## [fix/wire-report-photo-system-ttl] — 2026-07-10
 
 **Summary:** Implement the pending baha-api Java for three features whose DB migrations + frontend
