@@ -4,6 +4,54 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [fix/wire-report-photo-system-ttl] — 2026-07-10
+
+**Summary:** Implement the pending baha-api Java for three features whose DB migrations + frontend
+had already shipped but whose backend was never wired: report photos (v1.35.0), admin "system"
+reports (v1.36.0), and admin-defined TTL + source report time (v1.37.0). Fixes the reported defect
+where **admin-defined TTL was ignored and the client fell back to the severity-scaled default** —
+the API silently dropped `ttlMinutes`/`reportedAt` (not in the DTO/entity) and always returned them
+absent, so `enrichReports` never saw an override. No new DB migration (columns already applied).
+
+### Frontend
+- None (baha-ui v1.35.0/v1.36.0/v1.37.0 already shipped the client side).
+
+### Backend
+- `CreateReportRequest`: added optional `photoDataUrl` (`@Size`-bounded), `system` (Boolean),
+  `reportedAt` (OffsetDateTime), `ttlMinutes` (Integer).
+- `FloodReport` entity: mapped `reported_at` / `ttl_minutes`; `@PrePersist` defaults
+  `reportedAt = createdAt`; read-only `@JsonIgnore` `photo_mime` + derived `@Transient getPhotoUrl()`
+  (bytes stay off list/detail JSON and hot-path SELECTs).
+- `FloodReportRepository`: native `setPhoto` (write) + `findPhotoById` projection (read).
+- `FloodReportService.create`: gates `system`/`reportedAt`/`ttlMinutes` to ADMIN callers, tags
+  `reporterTrust='system'`, skips the geofence check for system reports, and decodes/validates +
+  stores an optional photo; new `photo(id)` read.
+- `FloodReportController`: new public `GET /reports/{id}/photo` streaming the image (404 when none).
+- No SecurityConfig change — `GET /reports/**` already `permitAll()`.
+
+### Database
+- setup.sql appended: no (already present) · Migrations already applied on main:
+  db/migrations/feat/report-photo, feat/system-report, feat/report-ttl (up/down each).
+- `flood_report`: `reported_at`, `ttl_minutes` (CHECK > 0), `photo` BYTEA, `photo_mime` TEXT
+  (MIME + pairing CHECKs); `reporter_trust` CHECK widened to include `'system'`;
+  `v_active_flood_report` includes reported_at/ttl_minutes. No new objects this branch.
+
+### Config / Env
+- None.
+
+### Testing
+- Local Postgres (schema baha, migrations present); app booted (`mvn spring-boot:run`).
+- ADMIN `POST /reports {system:true, reportedAt:-5h, ttlMinutes:360, photoDataUrl}` at Cebu
+  (outside geofence) → 201, echoes `reporterTrust:"system"`, `ttlMinutes:360`, backdated
+  `reportedAt`, `photoUrl`; geofence bypassed.
+- `GET /reports/{id}` echoes all four fields; `GET /reports/{id}/photo` → 200 `image/png`,
+  cache-control public, valid bytes; list JSON leaks no raw photo bytes (only `photoUrl`).
+- Negative: CITIZEN `system+ttl` outside geofence → 422 (enforced, flag ignored); at a valid
+  location → 201 with `reporterTrust:"verified"`, `ttlMinutes:null` (admin-gated). Test rows/users
+  cleaned up afterward.
+
+---
+
 ## [fix/chat-bubble-label] — 2026-06-30
 
 **Summary:** Make the community-chat launcher more discoverable, especially on mobile, where the

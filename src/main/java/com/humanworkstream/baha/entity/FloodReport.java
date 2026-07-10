@@ -1,5 +1,6 @@
 package com.humanworkstream.baha.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.humanworkstream.baha.enumeration.ReportStatus;
 import com.humanworkstream.baha.enumeration.Road;
 import com.humanworkstream.baha.enumeration.Severity;
@@ -66,9 +67,25 @@ public class FloodReport {
     @Column(name = "reporter_user_id")
     private Integer reporterUserId;
 
-    /** Author trust tier exposed to the UI: "verified" (a real account) or "guest" (no-login). */
+    /** Author trust tier exposed to the UI: "verified" (a real account), "guest" (no-login), or
+     *  "system" (an authoritative report an admin logged from news/other sources). */
     @Column(name = "reporter_trust", nullable = false)
     private String reporterTrust;
+
+    /** When the source reported the flood (admin/system reports). Anchors the client's TTL countdown.
+     *  Defaults to createdAt on persist so every report has one. */
+    @Column(name = "reported_at")
+    private OffsetDateTime reportedAt;
+
+    /** Admin-defined lifetime in minutes (system reports); null ⇒ the client's severity default. */
+    @Column(name = "ttl_minutes")
+    private Integer ttlMinutes;
+
+    /** Presence + type of the report's photo. Read-only here: the bytes and this mime are written
+     *  together by a native UPDATE (see FloodReportRepository.setPhoto). Never serialized directly. */
+    @JsonIgnore
+    @Column(name = "photo_mime", insertable = false, updatable = false)
+    private String photoMime;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -86,10 +103,18 @@ public class FloodReport {
         if (road == null) road = Road.risky;
         if (reportsCount == null) reportsCount = 1;
         if (reporterTrust == null) reporterTrust = "verified";
+        // Every report gets a reportedAt so the client can always anchor its TTL countdown.
+        if (reportedAt == null) reportedAt = createdAt;
     }
 
     @PreUpdate
     void onUpdate() {
         updatedAt = OffsetDateTime.now();
+    }
+
+    /** URL the UI uses to load the photo, or null when none. Derived — not a column. */
+    @Transient
+    public String getPhotoUrl() {
+        return photoMime != null ? "/reports/" + id + "/photo" : null;
     }
 }

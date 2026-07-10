@@ -19,8 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.OffsetDateTime;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -32,6 +36,14 @@ public class FloodReportService {
     private final ActivitySseService sse;
     private final GeofenceProperties geofence;
     private final TurnstileVerifier turnstile;
+
+    private static final Set<String> ALLOWED_MIME = Set.of("image/jpeg", "image/png", "image/webp");
+    private static final int MAX_PHOTO_BYTES = 900_000; // ~0.9 MB decoded; client sends ~300 KB
+    private static final Pattern DATA_URL =
+            Pattern.compile("^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", Pattern.DOTALL);
+
+    /** Small carrier for the photo endpoint. */
+    public record ReportPhoto(byte[] bytes, String mime) {}
 
     @Transactional(readOnly = true)
     public List<FloodReport> findActive(Severity severity) {
@@ -58,8 +70,11 @@ public class FloodReportService {
 
     @Transactional
     public FloodReport create(CreateReportRequest req, Integer reporterUserId, UserRole role, String clientIp) {
-        // Reject coordinates outside the service area — cheap guard against junk/abuse.
-        if (geofence.isEnabled() && !geofence.contains(req.latitude(), req.longitude())) {
+        // A "system" report is honored only for ADMIN callers (news/other-source incidents).
+        boolean isSystem = Boolean.TRUE.equals(req.system()) && role == UserRole.ADMIN;
+        // Reject coordinates outside the service area — cheap guard against junk/abuse. System
+        // reports (admin, from news/other sources) may be anywhere — skip the coverage check.
+        if (!isSystem && geofence.isEnabled() && !geofence.contains(req.latitude(), req.longitude())) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "That location is outside the coverage area (Metro Manila & Rizal).");
         }
@@ -80,9 +95,22 @@ public class FloodReportService {
         r.setReportsCount(1);
         r.setStatus(ReportStatus.active);
         r.setReporterUserId(reporterUserId);
-        // Denormalized author trust for the UI: guest reports render as provisional/unverified.
-        r.setReporterTrust(role == UserRole.GUEST ? "guest" : "verified");
+        // Denormalized author trust for the UI: 'system' = admin-logged authoritative report;
+        // else guest (no-login, provisional) vs verified (real account).
+        r.setReporterTrust(isSystem ? "system" : (role == UserRole.GUEST ? "guest" : "verified"));
+        // Admin/system reports may carry a source report time + a custom lifetime; citizen reports
+        // ignore them (reportedAt then defaults to createdAt via @PrePersist).
+        if (isSystem) {
+            if (req.reportedAt() != null) r.setReportedAt(req.reportedAt());
+            if (req.ttlMinutes() != null && req.ttlMinutes() > 0) r.setTtlMinutes(req.ttlMinutes());
+        }
         FloodReport saved = reportRepository.save(r);
+        // Optional photo → store the decoded bytes in the DB (bytes + mime written together).
+        if (req.photoDataUrl() != null && !req.photoDataUrl().isBlank()) {
+            ReportPhoto photo = decodePhoto(req.photoDataUrl());
+            reportRepository.setPhoto(saved.getId(), photo.bytes(), photo.mime());
+            saved.setPhotoMime(photo.mime()); // so the create response carries photoUrl (no refetch)
+        }
         // The reporter implicitly confirms their own report.
         if (reporterUserId != null) {
             confirmationRepository.save(new ReportConfirmation(saved.getId(), reporterUserId, null));
@@ -132,5 +160,34 @@ public class FloodReportService {
         sse.broadcast("report-deleted", id);
         log.info("[reports] deleted reportId={} by userId={} admin={}", id, userId, isAdmin);
         return true;
+    }
+
+    /** Decode + validate a client photo data-URL ("data:image/…;base64,…"). */
+    private ReportPhoto decodePhoto(String dataUrl) {
+        Matcher m = DATA_URL.matcher(dataUrl.trim());
+        if (!m.matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Photo must be an image data URL.");
+        }
+        String mime = m.group(1).toLowerCase();
+        if (!ALLOWED_MIME.contains(mime)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported image type.");
+        }
+        byte[] bytes;
+        try {
+            bytes = Base64.getDecoder().decode(m.group(2));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Photo is not valid base64.");
+        }
+        if (bytes.length == 0 || bytes.length > MAX_PHOTO_BYTES) {
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "Photo is too large.");
+        }
+        return new ReportPhoto(bytes, mime);
+    }
+
+    /** Read a report's stored photo bytes + mime; empty when it has none. */
+    @Transactional(readOnly = true)
+    public Optional<ReportPhoto> photo(Integer id) {
+        return reportRepository.findPhotoById(id)
+                .map(v -> new ReportPhoto(v.getPhoto(), v.getPhotoMime()));
     }
 }

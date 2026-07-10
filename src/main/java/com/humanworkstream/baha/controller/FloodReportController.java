@@ -11,11 +11,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -47,6 +50,17 @@ public class FloodReportController {
     @GetMapping("/{id}")
     public ResponseEntity<FloodReport> get(@PathVariable Integer id) {
         return service.findById(id).map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
+    }
+
+    /** Public: stream a report's photo. 404 when the report has no photo. */
+    @GetMapping("/{id}/photo")
+    public ResponseEntity<byte[]> photo(@PathVariable Integer id) {
+        return service.photo(id)
+                .map(p -> ResponseEntity.ok()
+                        .contentType(MediaType.parseMediaType(p.mime()))
+                        .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePublic())
+                        .body(p.bytes()))
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping
