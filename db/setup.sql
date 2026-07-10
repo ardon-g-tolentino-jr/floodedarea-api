@@ -361,3 +361,17 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA baha TO baha_user;
 GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA baha TO baha_user;
+
+-- ──────────────────────────────────────────────
+-- feat/system-report — admin-logged authoritative reports (news/other sources). Adds a third
+--   reporter_trust tier, 'system'. Appended (idempotent). See db/migrations/feat/system-report/.
+--   Widens the reporter_trust CHECK (added two-value by feat/guest-reporting above).
+-- ──────────────────────────────────────────────
+ALTER TABLE flood_report DROP CONSTRAINT IF EXISTS flood_report_reporter_trust_check;
+DO $$ BEGIN
+    ALTER TABLE flood_report ADD CONSTRAINT flood_report_reporter_trust_check
+        CHECK (reporter_trust IN ('verified','guest','system'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA baha TO baha_user;
+GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA baha TO baha_user;
