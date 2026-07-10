@@ -4,6 +4,36 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [043-feat-archive-retain-10] — 2026-07-11
+
+**Summary:** The Archive tab now retains the 10 most recent expired flood reports with no time limit
+(was: expired reports dropped off after a rolling 12-hour window). When there is no new activity the
+archived reports stay put, and they are only pushed out as newer reports expire. This gives users a
+lasting record that flooding happened in the past instead of an empty tab during quiet periods.
+
+### Frontend
+- baha-ui v1.41.0 (`src/App.tsx`): replaced the `ARCHIVE_WINDOW_MIN` (12h) time filter with an
+  `ARCHIVE_MAX = 10` recency cap. `archived` now filters expired, non-resolved reports, sorts by
+  `createdAt` desc, and `.slice(0, 10)`. Dropped the unused `now` dependency from the memo (the
+  underlying `enriched` still recomputes each tick, so newly-expired reports enter the archive).
+
+### Backend
+- None. `GET /reports` already returns all `status=active` reports ordered by `createdAt` desc with no
+  age-based pruning, so expired-by-TTL reports remain available for the client to archive indefinitely.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` succeeds; `dist/` rebuilt and committed.
+
+---
+
 ## [fix/persistent-login] — 2026-07-10
 
 **Summary:** Keep users signed in until they explicitly Sign out. The UI now persists the session in
