@@ -4,6 +4,60 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [feat/news-incidents] — 2026-07-10
+
+**Summary:** Automate flood-incident reporting from the news, human-in-the-loop. A scheduled job
+drafts flood incidents from Philippine news (Google News RSS) and files them into a new admin
+**Incident inbox** review queue; an admin approves each draft (which promotes it to an authoritative
+"system" flood report, reusing the existing report-create + Facebook share flow) or dismisses it.
+Nothing reaches the public map without that human step. Frontend shipped as baha-ui v1.39.0
+(`039-feat-news-incidents`); this entry adds the backend it consumes.
+
+### Frontend
+- baha-ui v1.39.0: `IncidentInboxModal` (review queue: Approve / Edit & approve / Dismiss), TopBar
+  inbox launcher with a pending-count badge, `useDraftIncidents` hook, `/incidents` API client,
+  `incident-drafted` SSE handling, and mock stubs. (Shipped separately.)
+
+### Backend
+- `DraftIncident` entity + `IncidentStatus` enum (`pending|approved|dismissed`, `incident_status_t`);
+  `DraftIncidentRepository` (`findByStatusOrderByPublishedAtDesc`, `existsBySourceUrl`).
+- `DraftIncidentService`: `findByStatus`; `approve` builds a `CreateReportRequest{system:true}` from
+  the draft + admin overrides and delegates to `FloodReportService.create` (which emits
+  `report-created` and bypasses the geofence), then marks the draft approved + records the report id;
+  `updateStatus` (dismiss); `ingest` (dedupe on source_url + broadcast `incident-drafted`).
+- `DraftIncidentController` `/incidents`: `GET ?status=` (defaults pending), `POST /{id}/approve`
+  (optional `ApproveIncidentRequest` overrides → returns the created `FloodReport`), `PATCH /{id}`
+  (`UpdateIncidentStatusRequest`).
+- `IncidentIngestionService`: `@Scheduled` Google News RSS drafter — fetches (RestClient), XXE-hardened
+  RSS parse, place gazetteer + keyword severity rules, dedupe, fail-soft. Disabled by default.
+  `SchedulingConfig` enables `@Scheduled`; `IncidentIngestProperties` binds `baha.incidents.ingest.*`.
+- `SecurityConfig`: `/incidents/**` is ADMIN-only.
+
+### Database
+- setup.sql appended: yes (idempotent `feat/news-incidents` section — `incident_status_t` enum +
+  `draft_incident` table + indexes + trigger + grants).
+- Migration: db/migrations/feat/news-incidents/20260710_news_incidents.up.sql
+- Rollback:  db/migrations/feat/news-incidents/20260710_news_incidents.down.sql
+- `draft_incident`: source metadata (headline/source_name/source_url UNIQUE/published_at), map fields
+  (name/district/lat/lng/severity/depth_cm/trend/road), `confidence` (0..1 CHECK), `status`
+  (incident_status_t), `created_report_id` → flood_report ON DELETE SET NULL. Indexes on
+  (status, published_at DESC) and created_report_id.
+
+### Config / Env
+- New (all optional; ingestion OFF by default): `INCIDENT_INGEST_ENABLED` (false),
+  `INCIDENT_INGEST_INTERVAL_MS` (900000), `INCIDENT_INGEST_INITIAL_DELAY_MS` (60000),
+  `INCIDENT_INGEST_QUERY`, `INCIDENT_INGEST_MAX_PER_RUN` (15), `INCIDENT_INGEST_MIN_CONFIDENCE` (0.0).
+
+### Testing
+- `mvn -q compile` clean. Local Postgres (schema baha): applied migration; enum + table + indexes
+  created; re-run idempotent.
+- ADMIN `GET /incidents` → seeded pending drafts; `POST /incidents/{id}/approve` (as-is and with
+  severity override) → 201 `reporterTrust:"system"` report on the map, draft flips to `approved` with
+  `created_report_id`; `PATCH /incidents/{id} {status:"dismissed"}` → drops from queue. Non-admin →
+  403. Ingestion left disabled in the test.
+
+---
+
 ## [fix/wire-report-photo-system-ttl] — 2026-07-10
 
 **Summary:** Implement the pending baha-api Java for three features whose DB migrations + frontend

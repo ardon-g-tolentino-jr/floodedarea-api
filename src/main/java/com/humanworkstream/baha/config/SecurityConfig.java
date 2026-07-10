@@ -73,6 +73,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST,   "/feedback/*/upvote").authenticated()
                 .requestMatchers(HttpMethod.GET,    "/feedback").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PATCH,  "/feedback/**").hasRole("ADMIN")
+                // ── News-drafted flood incidents — the whole review queue is ADMIN-only ──
+                .requestMatchers("/incidents/**").hasRole("ADMIN")
                 // ── Everything else requires a valid JWT. GUESTs are allowed here: POST /reports,
                 //     POST /reports/{id}/confirm, DELETE /reports/{id} (own), GET /auth/me. ──
                 .anyRequest().authenticated()
