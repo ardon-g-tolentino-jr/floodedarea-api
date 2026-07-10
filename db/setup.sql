@@ -341,3 +341,23 @@ CREATE INDEX IF NOT EXISTS idx_feedback_upvote_user ON feedback_upvote(user_id);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA baha TO baha_user;
 GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA baha TO baha_user;
+
+-- ──────────────────────────────────────────────
+-- feat/report-photo — optional flood-report photo stored in the DB (served via /reports/:id/photo).
+--   Appended (idempotent). See db/migrations/feat/report-photo/.
+--   The bytes live in flood_report.photo (BYTEA, auto-TOASTed); photo_mime flags presence and
+--   type. The API never returns the bytes in list/detail JSON — only a derived photoUrl.
+-- ──────────────────────────────────────────────
+ALTER TABLE flood_report ADD COLUMN IF NOT EXISTS photo      BYTEA;
+ALTER TABLE flood_report ADD COLUMN IF NOT EXISTS photo_mime TEXT;
+DO $$ BEGIN
+    ALTER TABLE flood_report ADD CONSTRAINT flood_report_photo_mime_check
+        CHECK (photo_mime IS NULL OR photo_mime IN ('image/jpeg','image/png','image/webp'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+    ALTER TABLE flood_report ADD CONSTRAINT flood_report_photo_pairing_check
+        CHECK ((photo IS NULL) = (photo_mime IS NULL));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA baha TO baha_user;
+GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA baha TO baha_user;
