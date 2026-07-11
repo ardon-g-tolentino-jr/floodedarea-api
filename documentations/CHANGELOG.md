@@ -4,6 +4,46 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [047-fix-share-og-canonical] — 2026-07-11
+
+**Summary:** Facebook was showing the report's *image + link but no description* — even though the
+backend `/reports/{id}/share` served a correct per-report `og:description`. Two things in that HTML
+sent Facebook's crawler away to the generic homepage before it used the report tags: the
+`og:url` pointed at the deep-link (Facebook canonicalizes to it and reads the SPA's generic OG), and
+a `<meta http-equiv="refresh">` (the crawler follows it through to the SPA). Fixed by making `og:url`
+self-referential (points back at the `/share` page) and replacing the meta-refresh with a JavaScript
+redirect — crawlers don't run JS, so they keep the report tags; humans still bounce to the deep-link.
+
+Now Facebook/X preview cards show the report's details (severity, depth, trend, location — the
+what/where; the app it opens answers *when* via "reported N ago"). Clicking the card opens the report.
+
+### Frontend
+- none (baha-ui already routes Facebook/X scraping to `/reports/{id}/share` — see 046).
+
+### Backend
+- `ShareHtmlService`: `og:url` is now the `/share` URL itself (was the deep-link); the redirect to the
+  app is a `<script>location.replace(...)</script>` (was `<meta http-equiv="refresh">`). Report OG
+  content (title/description/image) unchanged. JS-string escaping added for the redirect URL.
+
+### Database
+- setup.sql appended: no · Migration: none · Rollback: none
+
+### Config / Env
+- none
+
+### Testing
+- Backend compiles on JDK 17; rendered HTML validated (jshell): self-referential `og:url`, no
+  meta-refresh, `location.replace` present, report details in `og:description`.
+- Pending post-deploy: re-scrape a shared report in the Facebook Sharing Debugger (clears FB's cache)
+  and confirm the card now shows the report description.
+
+**Known tradeoff:** because the card is built from the API host's `/share` page, Facebook displays
+that host as the card's domain (not `floodedarea.com`). Keeping the description **and** the
+`floodedarea.com` domain requires the static site to serve per-report OG to crawlers — i.e. the edge
+(nginx) crawler-routing option, which prod's static `floodedarea.com` doesn't currently do.
+
+---
+
 ## [046-fix-share-og-via-backend] — 2026-07-11
 
 **Summary:** Makes the per-report social share actually work on prod's split-host topology (static
