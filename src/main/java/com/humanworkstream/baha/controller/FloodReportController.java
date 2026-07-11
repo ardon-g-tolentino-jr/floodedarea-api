@@ -7,6 +7,7 @@ import com.humanworkstream.baha.enumeration.Severity;
 import com.humanworkstream.baha.security.SecurityUtils;
 import com.humanworkstream.baha.security.UserPrincipal;
 import com.humanworkstream.baha.service.FloodReportService;
+import com.humanworkstream.baha.service.ShareHtmlService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,7 @@ import java.util.List;
 public class FloodReportController {
 
     private final FloodReportService service;
+    private final ShareHtmlService shareHtml;
 
     @GetMapping
     public List<FloodReport> list(@RequestParam(required = false) Severity severity) {
@@ -50,6 +52,20 @@ public class FloodReportController {
     @GetMapping("/{id}")
     public ResponseEntity<FloodReport> get(@PathVariable Integer id) {
         return service.findById(id).map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Public: server-rendered Open Graph / Twitter card for a shared report link. nginx routes social
+     * crawlers here (they don't run the SPA's JS); the returned HTML also `<meta refresh>`-bounces any
+     * human to the deep-link. Unknown/invalid ids fall back to the site-wide card. Cached briefly.
+     */
+    @GetMapping(value = "/{id}/share", produces = MediaType.TEXT_HTML_VALUE)
+    public ResponseEntity<String> share(@PathVariable Integer id) {
+        String body = service.findById(id).map(shareHtml::renderReport).orElseGet(shareHtml::renderDefault);
+        return ResponseEntity.ok()
+                .contentType(MediaType.TEXT_HTML)
+                .cacheControl(CacheControl.maxAge(Duration.ofMinutes(5)).cachePublic())
+                .body(body);
     }
 
     /** Public: stream a report's photo. 404 when the report has no photo. */

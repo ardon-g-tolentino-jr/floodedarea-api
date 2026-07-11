@@ -4,6 +4,60 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [045-feat-report-deeplink-share] — 2026-07-11
+
+**Summary:** Sharing a flood report now (1) produces a link that opens the app **directly** on that
+report (`/?report=<id>`), and (2) shows the report's own details in the social-media preview card
+instead of the generic site cover. Previously every share used the bare app URL and Facebook showed
+the site-wide "just the map" preview. The report's "Share to Facebook" button now opens the full
+multi-network share sheet (Facebook, X, WhatsApp, Telegram, email, copy link) scoped to that report.
+
+Because social crawlers don't run JavaScript, the per-report preview card is served server-side: a
+new public HTML endpoint emits per-report Open Graph tags, and nginx routes crawler user-agents that
+request a shared report link to it. Humans always get the SPA, which reads `?report=<id>` on load.
+
+### Frontend
+- baha-ui v1.42.0:
+  - `src/utils/share.ts`: new pure `buildReportUrl(origin, id)` → `<origin>/?report=<id>`.
+  - `src/App.tsx`: per-report share (`reportShareData`, `shareReport`) now uses the deep-link URL; the
+    report card's Share button opens the multi-network `ShareModal` (`setShareReportTarget`) instead of
+    jumping straight to Facebook; new mount effect reads `?report=<id>` and, once reports load, selects
+    the report and flies the map to it (canonical `setTab`/`setSelectedReportId`/`setMapFocus` pattern).
+    An expired/removed id shows a toast; runs once.
+  - `nginx/default.conf.template`: `map` detecting social-crawler user-agents; `location /` routes a
+    crawler-with-`?report=` to an internal `= /__prerender` that proxies to the backend share endpoint;
+    everyone else (and crawlers on the bare root) still get the static SPA. Only `set`/`rewrite last`
+    run inside `if` (the safe subset). `nginx -t` passes.
+
+### Backend
+- `FloodReportController.java`: new public `GET /reports/{id}/share` returning `text/html` with
+  per-report OG/Twitter tags (`text/html`, 5-min cache; falls back to a site-wide card for unknown ids).
+  Inherits the existing public `GET /reports/**` rule — no security change.
+- New `service/ShareHtmlService.java`: renders the OG HTML; absolute URLs built from
+  `baha.public-base-url`; `og:image` = the report's photo via the nginx `/api` proxy (else the site
+  cover); `og:url`/`<meta refresh>` = the human deep-link; all interpolated text HTML-escaped.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- New `baha.public-base-url` (env `BAHA_PUBLIC_BASE_URL`, default `https://floodedarea.com`) in
+  `application.properties` and `docker-compose.yml`.
+
+### Testing
+- Frontend (dev:mock, browser): `/?report=1` opens the report card + flies the map; the card's Share
+  button opens the multi-network sheet whose links carry `…/?report=1` and the report's details; a bad
+  id (`999999`) is handled gracefully with no console errors.
+- Backend: compiles on JDK 17; the OG HTML render was validated standalone (jshell) — all tags filled,
+  `og:url` = deep-link, `og:image` = `/api/reports/{id}/photo`, injection-safe escaping.
+- nginx: `nginx -t` on the substituted template passes.
+- Pending post-deploy (requires a public URL): Facebook Sharing Debugger + X Card Validator on
+  `https://floodedarea.com/?report=<id>` to confirm the live crawler sees the per-report card.
+
+---
+
 ## [044-fix-alert-modal-on-navigate] — 2026-07-11
 
 **Summary:** Fixed a defect where the full-screen alarm modal (with sound) re-popped on *every*
