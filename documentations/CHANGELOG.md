@@ -4,6 +4,44 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [048-fix-fb-discoverability-report-singular] — 2026-07-12
+
+**Summary:** Two small polish fixes. (1) The "Follow us on Facebook" link was only reachable after
+opening the Share dialog — added a matching row to the About & Support dialog (opened from the TopBar
+💙 button) so it's discoverable without ever opening Share. (2) A report confirmed by exactly one
+source read "1 reports" (CONFIRMED BY cell) — now singularizes to "1 report", matching the
+singular/plural handling already used everywhere else in the app.
+
+### Frontend
+- baha-ui v1.42.2:
+  - `src/utils/share.ts`: new exported `FB_GLYPH_PATH` (the Facebook brand SVG path), so both
+    `ShareModal` and `SupportModal` share one copy instead of duplicating the path string.
+  - `src/components/panels/ShareModal.tsx`: reads `FB_GLYPH_PATH` from `share.ts` instead of a local
+    copy — no behavior change, purely de-duplication.
+  - `src/components/panels/SupportModal.tsx`: new "Follow us on Facebook" row (same pill styling as
+    ShareModal's), placed after the "please report only the truth" callout and before "Continue to
+    the map"; reuses the existing `share.followFb` i18n key.
+  - `src/components/panels/ReportDetailCard.tsx`: "CONFIRMED BY" cell now reads
+    `{count} {count === 1 ? 'report' : 'reports'}` instead of always "reports" — matches the
+    inline-ternary pattern already used in `RoadConditionsModal.tsx` / `ResponseConsole.tsx`.
+
+### Backend
+- none
+
+### Database
+- setup.sql appended: no · Migration: none · Rollback: none
+
+### Config / Env
+- none
+
+### Testing
+- Browser (dev:mock): About & Support modal shows the new Facebook row (opens `FB_PAGE_URL` in a new
+  tab); ShareModal's Facebook icon + follow row still render correctly (glyph-extraction regression
+  check). A report with `reportsCount === 1` shows "1 report"; one with `reportsCount === 31` still
+  shows "31 reports". No console errors. `npm run typecheck` clean.
+
+---
+
 ## [047-fix-share-og-canonical] — 2026-07-11
 
 **Summary:** Facebook was showing the report's *image + link but no description* — even though the
