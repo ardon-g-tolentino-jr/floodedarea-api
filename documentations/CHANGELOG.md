@@ -4,6 +4,41 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [044-fix-alert-modal-on-navigate] — 2026-07-11
+
+**Summary:** Fixed a defect where the full-screen alarm modal (with sound) re-popped on *every*
+page load/navigation for any already-active red/orange rainfall alert — even when there was no
+flooding near the user (rainfall alerts are region-wide, not location-scoped). The modal effect had
+no priming, and its in-memory "already shown" tracker reset on each load, so an ongoing warning was
+treated as brand-new on every visit. Now the modal primes on first settled load like its sibling
+effects: an alert already ongoing when the user arrives is surfaced only by the persistent
+AlertRibbon banner, and the alarm modal fires only for genuinely new or escalated (e.g. orange → red)
+alerts.
+
+### Frontend
+- baha-ui v1.41.1 (`src/App.tsx`): severe-alert effect now returns early while `alerts.loading` so it
+  primes against real data, not the empty initial render; primes `modaledAlertLevels` (alongside
+  `notifiedAlertLevels`) on first settled load without alerting; the modal + alarm and the
+  OS-notification/toast now fire only for newly-active/escalated alerts. Added `alerts.loading` to the
+  effect deps.
+
+### Backend
+- none
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- none
+
+### Testing
+- `npm run typecheck` passes. Verified against the mock backend's seeded active red alert: the alarm
+  modal no longer pops on page load; the AlertRibbon banner still shows the ongoing warning.
+
+---
+
 ## [043-feat-archive-retain-10] — 2026-07-11
 
 **Summary:** The Archive tab now retains the 10 most recent expired flood reports with no time limit
