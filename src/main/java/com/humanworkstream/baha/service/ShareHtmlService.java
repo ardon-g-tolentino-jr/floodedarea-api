@@ -22,8 +22,13 @@ public class ShareHtmlService {
                 : publicBaseUrl;
     }
 
-    /** Per-report Open Graph / Twitter card: severity, depth, trend, location, and the photo when present. */
-    public String renderReport(FloodReport r) {
+    /**
+     * Per-report Open Graph / Twitter card: severity, depth, trend, location, and the photo when
+     * present. `apiBase` is the public origin of THIS backend (derived from the incoming request) —
+     * the report photo is streamed by this API, so its `og:image` must point there, not at the static
+     * site (which doesn't proxy the API).
+     */
+    public String renderReport(FloodReport r, String apiBase) {
         String deepLink = base + "/?report=" + r.getId();
         String sev = r.getSeverity().name().toUpperCase(); // HIGH / MEDIUM / LOW
         String where = r.getDistrict() != null && !r.getDistrict().isBlank()
@@ -37,10 +42,12 @@ public class ShareHtmlService {
         String title = sev + " flooding — " + r.getName() + " · FloodedArea";
         String desc = "~" + r.getDepthCm() + " cm" + trend + " at " + where
                 + ". Live crowd-sourced flood report on FloodedArea — real-time flood map for the Philippines.";
-        // The photo is served by the backend at /reports/{id}/photo; publicly that's reachable via
-        // nginx's /api proxy. Fall back to the site-wide cover when the report has no photo.
+        // The photo is streamed by this backend at /reports/{id}/photo — use the API's own public
+        // origin so the crawler can actually fetch it. Fall back to the site-wide cover (a static file
+        // on the public site) when the report has no photo.
+        String apiOrigin = apiBase.endsWith("/") ? apiBase.substring(0, apiBase.length() - 1) : apiBase;
         String image = r.getPhotoUrl() != null
-                ? base + "/api" + r.getPhotoUrl()
+                ? apiOrigin + r.getPhotoUrl()
                 : base + "/og-cover.jpg?v=1";
         return html(title, desc, image, deepLink);
     }

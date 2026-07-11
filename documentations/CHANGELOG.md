@@ -4,6 +4,55 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [046-fix-share-og-via-backend] — 2026-07-11
+
+**Summary:** Makes the per-report social share actually work on prod's split-host topology (static
+`floodedarea.com` + separate API host). After 045, Facebook still showed the generic site card and
+linked to the homepage, because `floodedarea.com` serves only static files — it has no `/api` proxy
+and no crawler routing, so it never handed crawlers the per-report Open Graph tags. Now the share
+buttons point Facebook/X directly at the backend's `/reports/{id}/share` endpoint (which already
+returns the report's details as `og:description` and sets `og:url` to the deep-link), so no
+`floodedarea.com`/nginx change is needed. The report's photo `og:image` was also corrected to use the
+API's own origin (it 404'd via `floodedarea.com/api`).
+
+Note: the client-side deep-link (`/?report=<id>`) already works on v1.42.0 — earlier "redirects to
+main page" reports were a stale PWA service-worker cache serving the pre-deep-link bundle, plus
+Facebook linking to the generic `og:url` (fixed here).
+
+### Frontend
+- baha-ui v1.42.1:
+  - `src/utils/share.ts`: new `buildReportOgUrl(apiBase, id)` → `<apiBase>/reports/<id>/share`;
+    `buildShareLinks` takes an optional `ogUrl` (defaults to `url`) and uses it for the Facebook `u`
+    and X `url` params — the URL those crawlers scrape to build the preview card. WhatsApp/Telegram/
+    email keep the clean human deep-link (details already ride in their message text).
+  - `src/App.tsx`: `reportShareData` and the `shareReport` Facebook fallback pass
+    `buildReportOgUrl(API_BASE, id)` as `ogUrl`.
+
+### Backend
+- `ShareHtmlService.renderReport` now takes the API's public origin (`apiBase`) and builds the photo
+  `og:image` from it (`<apiOrigin>/reports/{id}/photo`) instead of `<site>/api/...`, which 404s on the
+  static site. Site-cover fallback (no photo) still points at the static site.
+- `FloodReportController.share` derives that origin from the request
+  (`ServletUriComponentsBuilder.fromCurrentContextPath()`, honoring X-Forwarded-*) — no new config.
+
+### Database
+- setup.sql appended: no · Migration: none · Rollback: none
+
+### Config / Env
+- none
+
+### Testing
+- Frontend (dev:mock, browser DOM): the report share sheet's Facebook `u` and X `url` point at
+  `<apiBase>/reports/<id>/share`; WhatsApp/Telegram keep `?report=<id>`. Typecheck + build clean.
+- Backend compiles on JDK 17. Prod `/reports/<id>/share` already returns the report details in
+  `og:description` and `og:url` = the deep-link (verified via curl).
+- Pending post-deploy (needs redeploy of both apps): Facebook Sharing Debugger + X Card Validator on
+  a shared report — confirm the card shows the report's details and the click opens the deep-link. If
+  Facebook canonicalizes to `og:url` and shows the generic card, the one-line fallback is to make the
+  backend `og:url` self-referential (trades the clean domain for guaranteed per-report details).
+
+---
+
 ## [045-feat-report-deeplink-share] — 2026-07-11
 
 **Summary:** Sharing a flood report now (1) produces a link that opens the app **directly** on that
