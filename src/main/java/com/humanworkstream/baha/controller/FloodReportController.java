@@ -18,6 +18,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -61,7 +62,12 @@ public class FloodReportController {
      */
     @GetMapping(value = "/{id}/share", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> share(@PathVariable Integer id) {
-        String body = service.findById(id).map(shareHtml::renderReport).orElseGet(shareHtml::renderDefault);
+        // The API's own public origin (honors X-Forwarded-* via forward-headers-strategy) — the
+        // per-report og:image points here since the photo is streamed by this backend, not the site.
+        String apiBase = ServletUriComponentsBuilder.fromCurrentContextPath().build().toUriString();
+        String body = service.findById(id)
+                .map(r -> shareHtml.renderReport(r, apiBase))
+                .orElseGet(shareHtml::renderDefault);
         return ResponseEntity.ok()
                 .contentType(MediaType.TEXT_HTML)
                 .cacheControl(CacheControl.maxAge(Duration.ofMinutes(5)).cachePublic())
