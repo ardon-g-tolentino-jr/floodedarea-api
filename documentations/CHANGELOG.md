@@ -4,6 +4,71 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [049-feat-in-transit-quick-report] — 2026-08-04
+
+**Summary:** Added a "Quick / Driving" reporting mode for users reporting a flood while in transit
+(e.g. a passenger in a moving vehicle), alongside the existing detailed report flow. Reporting from a
+moving vehicle previously required the same interaction as reporting from home — adjust a map pin,
+choose severity, dial a depth slider — too much friction for someone on the move. Quick mode adds a
+one-tap severity picker (High/Medium/Low) that posts instantly at the live GPS location, using the
+existing `SEVERITY_PRESET` defaults for depth/trend/road, with no pin dragging or depth slider. The
+sheet stays open after each post so a passenger can mark several flooded points along a route, with an
+Undo action on each post's confirmation toast. Severity selection also supports tap-to-talk voice
+input (Web Speech API) as a progressive enhancement — the tap buttons remain the always-available
+fallback. No backend/DB changes; reuses the existing `POST /reports` endpoint.
+
+### Frontend
+- baha-ui v1.43.0:
+  - `src/App.tsx`: `mode` extended from `'idle' | 'report'` to `'idle' | 'report' | 'quick'`. New
+    `switchReportMode` to toggle between the detailed and quick forms without leaving report mode; a
+    `Detailed / 🚗 Quick` toggle rendered above the report-mode banner. New continuous-GPS effect
+    (gated on `mode === 'quick'`) keeps `pending`/`userLoc` glued to the live position via
+    `watchLocation`, throttling reverse-geocode calls to actual movement (>120 m) rather than every
+    fix. New `quickPost(sev, captchaToken?)` handler — posts immediately at the live location with
+    `depthCm`/`trend`/`road` from `SEVERITY_PRESET`, reuses the existing guest/CAPTCHA/duplicate-report
+    guards from `pickSeverity`, and (unlike the detailed flow) does not exit report mode on success —
+    it shows a toast with an Undo action instead. New `undoQuickReport(id)` deletes a just-created
+    quick report via the existing `mutations.deleteReport`.
+  - `src/utils/geolocate.ts`: new `watchLocation(onFix)` — a persistent `navigator.geolocation.watchPosition`
+    wrapper (vs. the existing `locateWithAccuracy`'s one-shot converge-then-teardown), returning a
+    cleanup function.
+  - `src/utils/voiceReport.ts` (new): thin Web Speech API wrapper — `speechSupported()`,
+    `listenForSeverity()` (single-utterance recognition, keyword-maps the transcript to a `Severity`),
+    and `speak()` (TTS confirmation read-back). Self-contained; every entry point no-ops rather than
+    throwing when unsupported (Firefox has no SpeechRecognition; iOS Safari is inconsistent).
+  - `src/components/panels/QuickReportSheet.tsx` (new): the quick-mode form — safety note, live
+    location/accuracy line, three large severity buttons (posts on tap, brief "✓ Reported" flash), an
+    optional tap-to-talk mic button (rendered only when `speechSupported()`), optional Turnstile
+    widget, and a Done button. Mirrors `SeverityPicker`'s mobile-sheet/desktop-popover layout.
+  - `src/i18n.ts`: new `report.modeDetailed` / `report.modeQuick` (toggle labels) and `quick.*` keys
+    (safety note, location/status copy, voice prompts, Undo/Undone), in English and Filipino.
+
+### Backend
+- none
+
+### Database
+- setup.sql appended: no · Migration: none · Rollback: none
+
+### Config / Env
+- none
+
+### Testing
+- Browser (dev:mock, desktop popover layout): toggled Detailed → Quick from the report banner; tapped
+  High/Medium/Low each posted instantly using the `SEVERITY_PRESET` depth (confirmed via the safety
+  banner reading "High flooding … about 108 cm" and the road-status counters incrementing
+  Impassable/Risky/Passable correctly per severity); the sheet stayed open after each post (multi-point
+  marking confirmed); the "✓ Reported" button-flash and the toast-with-Undo both rendered correctly;
+  Done correctly exited quick mode back to idle. Mic button rendered (Chrome supports
+  `webkitSpeechRecognition`); actual speech recognition not exercised (requires live microphone input,
+  outside this sandboxed browser). `npm run typecheck` and `npm run build` both clean. Mock DB seed
+  data (`mock-api/db.json`) restored after testing.
+- Known test-environment limitation (not a code issue): consecutive tap-severity posts in this sandbox
+  can exceed the 250 m same-location duplicate-report radius due to synthetic GPS jitter between
+  `watchPosition` fixes — the dedup check itself is the same `nearbyOwnActiveReport` guard already
+  proven in the detailed flow.
+
+---
+
 ## [048-fix-fb-discoverability-report-singular] — 2026-07-12
 
 **Summary:** Two small polish fixes. (1) The "Follow us on Facebook" link was only reachable after
