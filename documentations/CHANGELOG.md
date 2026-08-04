@@ -4,6 +4,89 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [051-feat-report-entry-simplify] — 2026-08-04
+
+**Summary:** 050 shipped a Detailed/🚗 Quick toggle *inside* the report sheets, so the choice of how
+to report was only discoverable after the reporter had already started reporting — and the detailed
+form's five fields (photo, street, severity, depth slider, name/anonymous) made a routine flood
+report take far more taps than it should for someone standing in water. This reworks the entry point:
+one floating button/menu that fans/pops out exactly two options — **Report flood** (detailed) and
+**Quick report** (voice-first) — remembers which was chosen last (ordering/highlighting it next
+time), and collapses the detailed form to a single tap for the common case. The mobile FAB moves to
+bottom-center. Reverts part of 050: `ReportModeToggle.tsx` is deleted, since the mode choice now
+happens before the sheet opens rather than inside it. Frontend-only — no backend, no DB.
+
+### Frontend
+- baha-ui v1.45.0:
+  - `src/components/panels/ReportOptions.tsx` (new): the two-option chooser content (📝 Report flood
+    / 🎤 Quick report, each with a subtitle), rendered by both the mobile fan-out and the desktop
+    popover. Orders/highlights the preferred option first based on the remembered preference; both
+    options stay clickable regardless.
+  - `src/App.tsx`: mobile FAB moved from `right:16` to bottom-center
+    (`left:'50%', transform:'translateX(-50%)'`), and tapping it now fans out `<ReportOptions>`
+    directly above it (via the existing `popIn` keyframe) behind a tap-anywhere scrim that only
+    closes the fan-out — it never starts a report. New `reportPref` state persisted to
+    `localStorage['baha_report_mode_v1']` (`'report' | 'quick'`, default `'report'`), following the
+    existing `loadLivePref`/`LIVE_STORAGE_KEY` pattern. `switchReportMode` and the old `startReport`
+    are replaced by a single `beginReport(target: 'report' | 'quick')` — the shared preamble
+    (guest session, duplicate-report guard, clearing `selectedReportId`/`selEvacId`, remembering the
+    preference, dropping the pin) used by both entry points; `startReport`/`startQuickReport` are
+    thin wrappers over it. Quick mode is now reachable directly (previously only reachable by
+    switching out of an already-open detailed report), so it now goes through the same guest/
+    duplicate-report guards the detailed flow always had. The desktop floating Detailed/🚗 Quick
+    pill above the map is removed — `TopBar`'s "Report flood" button now opens the same
+    `<ReportOptions>` chooser as a popover. Kept unchanged: the `mode === 'idle'` gate on
+    `ReportDetailCard`/`EvacDetailCard` and the `cancelReport()` call in the duplicate-report toast's
+    View action — the actual guards against two stacked bottom sheets.
+  - `src/components/panels/TopBar.tsx`: new `onChooseReport`/`reportPref` props (replacing `onReport`);
+    the desktop "Report flood" button now opens a `<ReportOptions>` popover anchored beneath it
+    (click-outside-to-close, mirroring the existing mobile overflow-menu pattern) instead of jumping
+    straight into the detailed flow.
+  - `src/components/panels/SeverityPicker.tsx`: restructured for progressive disclosure. Collapsed
+    (default): a location line, "How bad is it here?", and the three severity buttons post
+    IMMEDIATELY on tap using `SEVERITY_PRESET[sev].depthCm`/`trend`/`road` and the reverse-geocoded
+    street, plus an "Add details" expander and Cancel. Expanded: reveals photo attach, the editable
+    street field, the depth slider + `DepthReference`, and the name/anonymous toggle; a severity tap
+    now only *selects* (seeds the depth slider) and an explicit "Post flood report" button submits.
+    The `onPick(sev, depthCm, identify, road, captchaToken?, photoDataUrl?)` contract to `App.tsx`'s
+    `pickSeverity` is unchanged in both states. CAPTCHA behavior is unchanged (`TurnstileWidget`
+    still renders when `captchaRequired`, gating both the collapsed one-tap buttons and the expanded
+    Post button). Removed the `mode`/`onSwitchMode` props and inline `ReportModeToggle` render.
+  - `src/components/panels/QuickReportSheet.tsx`: auto-starts `startVoice()` on mount when
+    `speechSupported()`, so voice costs zero extra taps (added prompt copy "Say: high / medium /
+    low"). The floating "Voice Report" FAB (from 050) is repurposed as the re-arm/stop control —
+    since `listenForSeverity` is single-utterance, a successful *voice-matched* post now auto-re-arms
+    listening after a short delay (tracked via a ref so the delayed callback never reads stale
+    `busy`/`listening` state); a *tap* post never re-arms, and unmounting clears the re-arm timer
+    before it can fire. Removed the `mode`/`onSwitchMode` props and inline `ReportModeToggle` render.
+  - `src/components/panels/ReportModeToggle.tsx`: deleted (reverts part of 050 — the mode choice now
+    happens before the sheet opens).
+  - `src/i18n.ts`: new keys (en + fil) `report.chooseHow`, `report.optionDetailedSub`,
+    `report.optionQuick` + `…Sub`, `report.addDetails`, `report.hideDetails`, `quick.voiceSay`.
+    Reused `topbar.report` ("Report flood") for the detailed option's label instead of duplicating
+    it. Retired `report.modeDetailed` / `report.modeQuick` (only used by the deleted
+    `ReportModeToggle`).
+  - `package.json`: 1.44.0 → 1.45.0. `dist/` rebuilt.
+
+### Backend
+- none
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- none
+
+### Testing
+- `npm run typecheck` and `npm run build` both clean in baha-ui.
+- Not run in this batch (left for manual verification): interactive browser testing of the mobile
+  fan-out (centering, scrim dismiss, one-tap post, voice auto-listen/re-arm), the desktop popover,
+  and the guest/CAPTCHA path per the plan's verification checklist.
+
+---
+
 ## [050-feat-quick-report-admin-polish] — 2026-08-04
 
 **Summary:** A batch of six polish fixes surfaced after v1.43.0 shipped the in-transit quick-report
