@@ -405,3 +405,20 @@ WHERE fr.status = 'active';
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA baha TO baha_user;
 GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA baha TO baha_user;
 GRANT SELECT ON v_active_flood_report TO baha_user;
+
+-- ──────────────────────────────────────────────
+-- feat/app-settings — admin-controlled global app settings (e.g. community chat visibility).
+--   Appended (idempotent). See db/migrations/feat/app-settings/. GET /settings is public;
+--   PATCH is ADMIN-only.
+-- ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS app_setting (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO app_setting (key, value) VALUES ('chat_enabled', 'true')
+    ON CONFLICT (key) DO NOTHING;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA baha TO baha_user;
+GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA baha TO baha_user;

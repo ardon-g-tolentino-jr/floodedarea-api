@@ -50,6 +50,9 @@ public class SecurityConfig {
                 // ── Visit counter — public read + public increment (no sign-in; fires on page load) ──
                 .requestMatchers(HttpMethod.GET,  "/stats/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/stats/visit").permitAll()
+                // ── Global app settings (e.g. community chat visibility) — public read, ADMIN write ──
+                .requestMatchers(HttpMethod.GET,   "/settings").permitAll()
+                .requestMatchers(HttpMethod.PATCH, "/settings").hasRole("ADMIN")
                 // ── Admin-only management writes ──
                 .requestMatchers(HttpMethod.POST,   "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT,    "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")

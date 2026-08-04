@@ -4,6 +4,112 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [050-feat-quick-report-admin-polish] — 2026-08-04
+
+**Summary:** A batch of six polish fixes surfaced after v1.43.0 shipped the in-transit quick-report
+mode. (1) The community chat bubble had no way to be taken down — added a global, admin-controlled
+`app_setting` table + `GET/PATCH /settings` endpoint and a toggle in the Admin console. (2) The
+tap-to-talk mic was buried inside the quick sheet's button stack — relocated to a floating "Voice
+Report" FAB anchored above the sheet. (3) Two concrete mobile-only defects made the Detailed/🚗 Quick
+toggle unreachable and let two bottom sheets stack — fixed by extracting the toggle into its own
+component (rendered inline on mobile) and clearing the selected report/evac on every mode switch. (4)
+Admin incident reporting could only pin a place by free-text search, which can't resolve PH-style
+street-intersection reports ("Aurora Blvd cor. Katipunan Ave") — added an Overpass-API intersection
+finder plus a map-pick fallback, both feeding a shared mini-map for fine-tuning. (5) Place search
+returned worldwide results for a Philippines-only product — added `countrycodes=ph`. (6) `TopBar` hid
+Sign out behind `!isMobile`, so a mobile user could never sign out — added it to the mobile overflow
+menu.
+
+### Frontend
+- baha-ui v1.44.0:
+  - `src/types.ts`: new `AppSettings { chatEnabled: boolean }`.
+  - `src/api/queries.ts`: `rawApi.settings` (`GET /settings`) and `mutations.updateSettings`
+    (`PATCH /settings`).
+  - `src/hooks/useDomainData.ts`: new `useSettings()`, same shape as the other domain-data hooks.
+  - `src/App.tsx`: mounts `<ChatWidget>` only when `settings.data?.chatEnabled !== false`
+    (default-on, so a fetch failure never silently hides chat); new `onToggleChat` admin handler
+    (`mutations.updateSettings` → `settings.refetch(true)`, toasts on failure). `switchReportMode`
+    now clears `selectedReportId`/`selEvacId` on every mode switch; `ReportDetailCard`/
+    `EvacDetailCard` are gated on `mode === 'idle'`; the duplicate-report toast's **View** action
+    (in `pickSeverity`) calls `cancelReport()` before selecting the existing report — all three
+    close the fix for the two-bottom-sheets-stack defect. The Detailed/🚗 Quick floating pill above
+    the map is now desktop-only (`!isMobile &&…`), using the new `ReportModeToggle`.
+  - `src/components/panels/ReportModeToggle.tsx` (new): the segmented Detailed/🚗 Quick control,
+    extracted out of `App.tsx` so it can be rendered either as App's floating pill (desktop) or as
+    the first row inside the sheet card (mobile — see `SeverityPicker`/`QuickReportSheet` below).
+  - `src/components/panels/SeverityPicker.tsx`, `QuickReportSheet.tsx`: new `mode`/`onSwitchMode`
+    props; render `<ReportModeToggle>` as the sheet's first row when `isMobile`, fixing the
+    unreachable-toggle defect (the floating pill sat in the map area's `isolation: isolate`
+    stacking context, which the sheets' full-viewport dimmer — same zIndex bracket — painted over).
+  - `src/components/panels/QuickReportSheet.tsx`: removed the in-card mic button/row; added a
+    floating "Voice Report" FAB (styled after `ChatWidget`'s bubble: gradient pill, pulse when
+    listening) anchored via `position:absolute; right:16; top:-64` to a non-scrolling sheet
+    wrapper, so it floats clear of the card and dimmer on both mobile and desktop. Reuses the
+    existing `speechSupported()`/`startVoice`/`stopVoice`/`listenForSeverity` wiring unchanged — a
+    relocation, not a rewrite.
+  - `src/i18n.ts`: `quick.voiceTap` shortened to `'Voice Report'` / `'Ulat sa Boses'` (was "Tap to
+    report by voice").
+  - `src/components/panels/AdminPanel.tsx`: new `chatEnabled`/`onToggleChat` props; a second toggle
+    row ("Community chat button") directly under the existing Live-activity-stream row, cloning its
+    switch markup.
+  - `src/api/geocode.ts`: `searchPlaces` now sends `countrycodes=ph`; updated the module header,
+    `searchPlaces` docblock, and `AdminReportIncidentModal` docblock, which previously promised
+    worldwide search.
+  - `src/api/overpass.ts` (new): `findIntersection(a, b, city, signal)` — POSTs an Overpass QL query
+    resolving the shared node(s) of two named streets (optionally scoped to an administrative
+    area), falling back to a rough Philippines bbox when the named area yields nothing. Same
+    never-throws/`[]`-on-error contract as `geocode.ts`; fires only on an explicit button press.
+  - `src/components/panels/MapPickField.tsx` (new): a compact (~220px) react-leaflet map with a
+    draggable marker and click-to-move, for fine-tuning a picked point.
+  - `src/components/panels/AdminReportIncidentModal.tsx`: replaced the single `PlaceField` with a
+    two-tab Location block — **Intersection** (Street 1 / Street 2 / City + "Find intersection" →
+    results list, default tab) and **Pick on map** (the existing `PlaceField` search/current-location
+    field); both feed a shared `MapPickField` below for fine-tuning, which re-runs `reverseGeocode`
+    on every move. `onPickPlace` gained a `skipNameOverwrite` flag so picking (or fine-tuning) an
+    intersection result keeps the "A cor. B" name instead of being clobbered by a reverse-geocode
+    of the crossing node (which typically resolves to only one of the two streets).
+  - `src/components/panels/TopBar.tsx`: mobile overflow menu gained a divider, a non-interactive
+    account-name header row, and a Sign out item (`auth &&…`) at the end — previously Sign out was
+    only reachable via the desktop-only inline button, so a mobile user could never sign out.
+  - `mock-api/server.cjs` + `mock-api/db.json`: `GET`/`PATCH /settings`, backed by a new `settings`
+    key in `db.json` (`{ chatEnabled: true }`).
+  - `package.json`: 1.43.0 → 1.44.0. `dist/` rebuilt.
+
+### Backend
+- baha-api:
+  - New `entity/AppSetting.java` (key/value/updatedAt, `@Table("app_setting")`),
+    `repository/AppSettingRepository.java` (`JpaRepository<AppSetting, String>`),
+    `service/AppSettingService.java` (`get()` defaults missing/unset to `chatEnabled: true`;
+    `patch(UpdateSettingsRequest)` upserts only non-null fields), `dto/SettingsResponse.java`
+    (`boolean chatEnabled`), `dto/UpdateSettingsRequest.java` (`Boolean chatEnabled`, null =
+    unchanged), `controller/SettingsController.java` (`GET /settings`, `PATCH /settings`).
+  - `config/SecurityConfig.java`: `GET /settings` public, `PATCH /settings` ADMIN-only.
+  - Verified end-to-end (not just migrated): `mvn -q -DskipTests compile` clean; the entity ↔
+    repository ↔ service ↔ DTO ↔ controller ↔ SecurityConfig chain for `chatEnabled` was traced by
+    hand to confirm it's fully wired (this project has previously shipped migrations/specs without
+    the Java actually wired).
+
+### Database
+- setup.sql appended: yes — `app_setting` table (`key TEXT PRIMARY KEY, value TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`), seeded `('chat_enabled','true')` via
+  `ON CONFLICT DO NOTHING`, plus the standard grants block.
+- Migration: `db/migrations/feat/app-settings/20260804_app_settings.up.sql`
+- Rollback:  `db/migrations/feat/app-settings/20260804_app_settings.down.sql` (drops the table —
+  irreversible loss of any admin-set settings, noted in the file)
+
+### Config / Env
+- none
+
+### Testing
+- `npm run typecheck` and `npm run build` both clean in baha-ui.
+- `mvn -q -DskipTests compile` clean in baha-api.
+- Not run in this batch (no live DB / dev server per the task instructions — left for manual
+  verification): applying the migration and hitting `GET /settings` / `PATCH /settings` against a
+  running baha-api; exercising the chat toggle, the mobile mode-toggle/no-stacking fix, the Voice
+  Report FAB, PH-only search, the intersection finder, and mobile Sign out in the browser.
+
+---
+
 ## [049-feat-in-transit-quick-report] — 2026-08-04
 
 **Summary:** Added a "Quick / Driving" reporting mode for users reporting a flood while in transit
