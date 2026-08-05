@@ -41,8 +41,11 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // ── Auth — public ──
                 .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/google", "/auth/register", "/auth/guest").permitAll()
+                // ── Flood-prone areas: the admin-only listing must be matched before the public GET
+                //     line below, or it would fall through to permitAll(). ──
+                .requestMatchers(HttpMethod.GET, "/flood-prone/all").hasRole("ADMIN")
                 // ── Public reads (anyone can view the flood map / shelters / hotlines / alerts / road conditions) ──
-                .requestMatchers(HttpMethod.GET, "/reports/**", "/centers/**", "/hotlines/**", "/alerts/**", "/road-status").permitAll()
+                .requestMatchers(HttpMethod.GET, "/reports/**", "/centers/**", "/hotlines/**", "/alerts/**", "/road-status", "/flood-prone/**").permitAll()
                 // ── SSE live activity feed — public read ──
                 .requestMatchers(HttpMethod.GET, "/sse/**").permitAll()
                 // ── Health & error — public ──
@@ -54,10 +57,10 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET,   "/settings").permitAll()
                 .requestMatchers(HttpMethod.PATCH, "/settings").hasRole("ADMIN")
                 // ── Admin-only management writes ──
-                .requestMatchers(HttpMethod.POST,   "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.PUT,    "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.PATCH,  "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
-                .requestMatchers(HttpMethod.DELETE, "/centers/**", "/hotlines/**", "/alerts/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.POST,   "/centers/**", "/hotlines/**", "/alerts/**", "/flood-prone/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PUT,    "/centers/**", "/hotlines/**", "/alerts/**", "/flood-prone/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PATCH,  "/centers/**", "/hotlines/**", "/alerts/**", "/flood-prone/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.DELETE, "/centers/**", "/hotlines/**", "/alerts/**", "/flood-prone/**").hasRole("ADMIN")
                 // ── Flood reports: PATCH (resolve / reactivate) is admin. DELETE just needs a login;
                 //     the service enforces owner-or-admin so a reporter can remove their own report. ──
                 .requestMatchers(HttpMethod.PATCH,  "/reports/**").hasRole("ADMIN")

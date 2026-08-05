@@ -4,6 +4,97 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [054-feat-flood-prone-zones] — 2026-08-05
+
+**Summary:** An admin can now pin persistent **flood-prone areas** (a point plus a radius) that
+every visitor sees drawn on the map, and can *separately* trigger a manual warning for one of those
+zones. The two actions are deliberately distinct: a zone sits quietly as a standing advisory and can
+be re-warned every time conditions justify it. Neither existing surface expressed this — a flood
+report asserts water is there *right now*, is crowd-confirmable and expires, while `flood_alert` had
+no geometry whatsoever, so every alert was global and could be neither drawn on the map nor targeted
+at the people actually near it.
+
+The central design decision was **not to build a second notification pipeline**. The warning rides
+the existing alert rails (`GET /alerts` → `useAlerts` → `AlertRibbon` → `AlertModal` →
+`alert-created` SSE); `flood_alert` simply gained nullable geometry. Three consequences: the SSE
+layer needed *zero* changes (`useActivityStream` already listens for `alert-created`, and App
+already refetches on any `alert*` event); proximity gating collapsed to one pure predicate over the
+alert list instead of new infrastructure; and the change is fully backward compatible — an alert
+with `latitude IS NULL` is global and behaves exactly as before.
+
+### Frontend
+- baha-ui v1.48.0:
+  - `src/utils/viewModel.ts`: new pure `alertsForUser(alerts, userLoc)` — the entire proximity gate.
+    Alerts without geometry always pass; geo-stamped alerts pass within `radiusM/1000 + 0.3 km`
+    (`PROXIMITY_MARGIN_KM`), reusing `kmBetween` from `utils/geo.ts`. **Fails open** when `userLoc`
+    is null: a missed flood warning is worse than a spurious one, and that reasoning is recorded in
+    the doc comment so it isn't "tidied up" later.
+  - `src/App.tsx`: `useFloodProneAreas()` + `floodProneList`; `visibleAlerts = alertsForUser(...)`
+    now feeds **both** the ribbon (`activeAlert`) and the severe-alert modal effect — gating one but
+    not the other would have leaked warnings to people far away. `setAlertModal` tags
+    `source: 'zone'` when `areaId != null`. Zone CRUD goes through the existing `adminAction`
+    helper; `warnZone` deliberately does **not**, since it must throw so the modal keeps its form
+    open on failure (same reasoning as `onReportIncident`) and must refetch both alerts and zones
+    (for `lastWarnedAt`). New `zoneWarnTarget` state follows the `{x && isAdmin && <Modal/>}`
+    invariant. The four synthetic `FloodAlert` literals (trip/nearby dialogs) gained explicit null
+    geometry.
+  - `src/components/panels/AdminWarnZoneModal.tsx` (new): the manual trigger. Prefills title/body/
+    level from the zone and requires an explicit "Send warning" click — it must never fire as a side
+    effect of saving a zone.
+  - `src/components/panels/AdminPanel.tsx`: new `zones` tab reusing the existing `'place'` field
+    primitive for the map pin, plus a per-row `⚠ Warn` button and a "last warned" hint.
+  - `src/components/map/FloodMap.tsx`: dashed `Circle` per zone (level-colored via `LEVEL_STYLE`),
+    drawn *below* the report layers so live reports stay on top.
+  - `src/components/panels/AlertModal.tsx`: `'zone'` added to `AlertSource`/`SOURCE_KEY`, so a zone
+    warning is distinguishable from Nearby / Trip / Weather at the moment it interrupts you.
+  - `src/i18n.ts`: `zone.*` group + `alert.sourceZone` (en/fil).
+  - `mock-api/`: three seeded zones, explicit null geometry on the existing alert, and explicit
+    `/flood-prone` routes — the collection is `floodProneAreas` but the path is `/flood-prone`, so
+    json-server's name-derived auto-CRUD does not cover it.
+  - `src/hooks/useActivityStream.ts`: **intentionally untouched.**
+
+### Backend
+- `entity/FloodProneArea.java`, `repository/`, `service/`, `controller/`, `dto/WarnAreaRequest.java`
+  — modeled file-for-file on the `FloodAlert` stack.
+- `FloodProneAreaService.warn(id, req)`: builds a geo-stamped `FloodAlert` (title/body/region/level
+  falling back to the zone's own fields), saves it, stamps `lastWarnedAt`, and calls
+  `sse.broadcast("alert-created", …)` — reusing the existing event name rather than inventing one.
+- `entity/FloodAlert.java`: added `latitude`, `longitude` (BigDecimal), `radiusM`, `areaId`.
+  `FloodAlertService.patch` was left alone — geometry is only ever set by the warn path.
+- `config/SecurityConfig.java`: `GET /flood-prone` public; writes ADMIN-only. `GET /flood-prone/all`
+  is matched **before** the public GET line, or it would fall through to `permitAll()`.
+- Endpoints: `GET /flood-prone`, `GET /flood-prone/all`, `POST /flood-prone`,
+  `PATCH /flood-prone/{id}`, `DELETE /flood-prone/{id}`, `POST /flood-prone/{id}/warn`.
+
+### Database
+- setup.sql appended: yes (new `flood_prone_area` table + the four `flood_alert` columns)
+- Migration: db/migrations/feat/flood-prone-zones/20260805_flood_prone_zones.up.sql
+- Rollback:  db/migrations/feat/flood-prone-zones/20260805_flood_prone_zones.down.sql
+- New table `flood_prone_area` (radius CHECK 50–20000 m, `idx_flood_prone_area_active`,
+  `updated_at` trigger). `flood_alert` gains nullable `latitude`, `longitude`, `radius_m`, and
+  `area_id` (FK → `flood_prone_area`, `ON DELETE SET NULL`) plus `idx_flood_alert_area_id`.
+- ⚠️ **Must be applied as a superuser.** `flood_alert` is owned by `postgres`, so the `ALTER TABLE`
+  statements fail with `must be owner of table flood_alert` when run as `baha_user` — and psql keeps
+  going, so a truncated log looks like success while the geometry columns silently never exist.
+  Run `psql -U postgres -d baha -f …up.sql` and verify the four columns afterwards.
+
+### Config / Env
+- None. No new env vars, no feature flag; the feature is inert until an admin pins a zone.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean (dist/ rebuilt and committed); backend
+  `mvn -DskipTests compile` → BUILD SUCCESS.
+- Against the mock: `POST /flood-prone/100001/warn` returned a 201 alert carrying the zone's
+  `latitude/longitude/radiusM/areaId`, bumped that zone's `lastWarnedAt` (and no other zone's), and
+  emitted `event: alert-created` on `/sse/activity`.
+- Proximity gate verified on the three paths that matter: the pre-existing global alert shows
+  regardless of location (backward-compat regression check); the geo alert shows at 0.05 km from the
+  España Blvd zone and hides at 15.06 km (limit 0.70 km); and with location unknown it shows
+  (fail-open).
+- Migration idempotency confirmed by re-running the up script.
+
+---
+
 ## [053-feat-engagement-polish] — 2026-08-05
 
 **Summary:** Five engagement gaps, four of which were capability the app already had but never

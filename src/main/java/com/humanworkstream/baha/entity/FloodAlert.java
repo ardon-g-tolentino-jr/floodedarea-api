@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 /** A rainfall / flood warning shown as the alert ribbon. */
@@ -37,6 +38,18 @@ public class FloodAlert {
 
     @Column(nullable = false)
     private Boolean active;
+
+    // Geo-stamp set only by the flood-prone-area "warn" path (FloodProneAreaService.warn).
+    // NULL on every alert created the old way = global alert = unchanged behavior.
+    private BigDecimal latitude;
+
+    private BigDecimal longitude;
+
+    @Column(name = "radius_m")
+    private Integer radiusM;
+
+    @Column(name = "area_id")
+    private Integer areaId;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
