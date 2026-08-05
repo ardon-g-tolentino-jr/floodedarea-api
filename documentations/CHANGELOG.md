@@ -4,6 +4,105 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [053-feat-engagement-polish] — 2026-08-05
+
+**Summary:** Five engagement gaps, four of which were capability the app already had but never
+surfaced. The headline is a real defect: the Confirm button on a flood report was gated on `!!auth`,
+but its handler `confirmReport()` already opens with `ensureGuest()` — it was designed to silently
+mint a guest session for exactly that low-stakes write. The UI gate never let it run, so Confirm
+stayed invisible until the visitor had already posted a report by some other path — the inverse of
+the intended flow, and the single biggest drag on corroboration counts. Alongside it: the SSE
+activity stream drove background refetches but rendered nothing, so the app never looked live;
+evacuation centers offered a phone number but no way to actually get there; the three separate alert
+systems (personal-radius bell, trip-stop watch, PAGASA rainfall) were all labelled some flavour of
+"alerts" and shared one indistinguishable modal; and a guest was nudged to sign in exactly once, via
+a toast after one of the two report paths. Frontend-only — no backend, no DB.
+
+### Frontend
+- baha-ui v1.47.0:
+  - `src/App.tsx`: **the fix** — `canConfirm={!!auth && !selectedReport.mine}` →
+    `canConfirm={!selectedReport.mine}`, with a comment warning against restoring the auth gate
+    (`mine` is already `false` with no session, and `confirmReport` mints the guest on click).
+    New `lastEventAt` state set inside the existing `useActivityStream` callback — the only thing it
+    drives is the ticker's pulsing-vs-static LIVE dot; the stream contract (event name only, no
+    payload) is deliberately untouched. New `guestNudgeDismissed` state persisted to
+    `localStorage['baha_guest_nudge_v1']`. All three `setAlertModal` call sites now tag
+    `source: 'nearby' | 'trip' | 'weather'`. Hardcoded nearby-alert titles moved to i18n. The bare
+    `onSignIn={() => setLogin({ open: true })}` now carries a reason, so the LoginView reason box
+    (which existed but never rendered from the most-used entry point) actually appears.
+  - `src/components/panels/ActivityTicker.tsx` (new): slim full-width strip under the TopBar,
+    mounted as a sibling of `AlertRibbon` (same `flex:'none'` / `zIndex:35` pattern). Renders
+    `feed[0]` — severity dot from `SEV_META`, district, street, depth, `timeAgo` — so the SSE-driven
+    refresh is visibly live. Dismissal is keyed to the report id, so a newer report brings it back.
+    Ellipsises to one line on mobile; renders `null` when there are no active reports.
+  - `src/utils/geo.ts`: new pure `directionsUrl(lat, lng)` — Google Maps deep link
+    (`/maps/dir/?api=1&destination=…&travelmode=driving`), hands off to the native app on iOS/Android.
+    Side-effect-free per the `utils/` convention.
+  - `src/components/panels/EvacDetailCard.tsx`: the lone "Call" button became a two-button row —
+    **Directions** (`var(--bw-primary)`, `target="_blank" rel="noopener noreferrer"`) and **Call**
+    (unchanged `tel:` behavior). Deliberately labelled "Directions", never "Route", so it does not
+    read as the existing trip feature (which is a flood watchlist, not navigation). Card was
+    previously 100% hardcoded English; now uses `useI18n` throughout.
+  - `src/components/panels/AlertModal.tsx`: new optional `source` prop rendering a small chip
+    (Nearby / Trip / Weather). This modal is shared by all three alert systems — App synthesizes a
+    `FloodAlert` with a negative id for report-based alerts — so until now a trip alert, a nearby
+    alert and a real PAGASA warning were visually identical at the moment they interrupted you.
+  - `src/components/panels/Sidebar.tsx`: dismissible guest card above the alerts block, gated on
+    `auth === null || auth.role === 'GUEST'`. Receives the *real* `auth`, not the guest-hidden
+    version TopBar gets, since it must tell a guest apart from no session at all.
+  - `src/views/LoginView.tsx`: labelled "Keep browsing as guest" button — previously the only way
+    back to guest browsing was an unlabelled `×` or a backdrop click.
+  - `src/components/panels/TopBar.tsx`: hardcoded `title`/`aria-label="Flood alerts"` → the new
+    `topbar.nearbyAlerts` key (every sibling button already used `t()`).
+  - `src/components/panels/FeaturesModal.tsx`: 🔔 "Rainfall alerts" → 🌧️ "Weather warnings" (the 🔔
+    collided with the actual bell, which controls a different system). Also corrected a long-standing
+    false claim that shelters list their "capacity" — `EvacuationCenter` has no such field.
+  - `src/components/panels/ReportDetailCard.tsx`: confirm CTA strings moved to i18n.
+  - `src/i18n.ts`: alert relabel — `sidebar.floodAlerts` "Flood alerts" → **"Nearby flood alerts"**
+    (retitles the sidebar row and the NotifyModal header at once), `sidebar.alertsOn/Off` and
+    `notify.master` reworded to say "near you". `trip.independentNote` names the system in prose and
+    was updated in lockstep (en + fil). New keys: `topbar.nearbyAlerts`, `notify.alertTitleOne/Many`,
+    `alert.sourceNearby/Trip/Weather`, `report.confirmCta/confirming`, `ticker.*`, `guest.*`, `evac.*`
+    — all with both `en` and `fil`.
+  - `package.json`: 1.46.0 → 1.47.0. `dist/` rebuilt.
+
+### Backend
+- none
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- none
+
+### Testing
+- `npm run typecheck` and `npm run build` both clean in baha-ui.
+- Not run in this batch (left for manual verification): the full interactive checklist — most
+  importantly the incognito/no-session check that the Confirm button now renders and that clicking it
+  mints a guest and increments the count; the ticker against a live baha-api (the json-server mock's
+  SSE stub emits nothing but `rescue-created`, so the pulsing LIVE dot cannot be exercised offline);
+  the relabels walked in both `en` and `fil`; and the guest nudge's dismiss-persistence across reload.
+
+### Follow-up for baha-api
+- `FloodReport` has `reportsCount` but no `confirmedByMe` flag (compare `Feedback.upvotedByMe`, which
+  does have one). The UI therefore cannot grey out or suppress a repeat confirm — only the server
+  dedupes, and the user gets no feedback that they already confirmed. Adding `confirmedByMe` to the
+  `/reports` payload would let the frontend reflect that state.
+- The `/sse/activity` stream sends event names with no body, so no consumer can know *what* changed.
+  053 works around this by re-deriving the newest report from the refetched list. If the stream ever
+  carries a JSON payload, the ticker could show the exact event that fired.
+
+---
+
+## [052-feat-trip-stop-monitoring] — not recorded
+
+**Note:** baha-ui v1.46.0 (`052-feat-trip-stop-monitoring`, merged 2026-08-05) shipped without a
+CHANGELOG entry here. Recorded as a known gap rather than reconstructed after the fact.
+
+---
+
 ## [051-feat-report-entry-simplify] — 2026-08-04
 
 **Summary:** 050 shipped a Detailed/🚗 Quick toggle *inside* the report sheets, so the choice of how
