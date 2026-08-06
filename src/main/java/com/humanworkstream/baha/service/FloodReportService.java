@@ -16,6 +16,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.OffsetDateTime;
@@ -36,6 +38,7 @@ public class FloodReportService {
     private final ActivitySseService sse;
     private final GeofenceProperties geofence;
     private final TurnstileVerifier turnstile;
+    private final SocialPublishService socialPublishService;
 
     private static final Set<String> ALLOWED_MIME = Set.of("image/jpeg", "image/png", "image/webp");
     private static final int MAX_PHOTO_BYTES = 900_000; // ~0.9 MB decoded; client sends ~300 KB
@@ -114,6 +117,26 @@ public class FloodReportService {
         // The reporter implicitly confirms their own report.
         if (reporterUserId != null) {
             confirmationRepository.save(new ReportConfirmation(saved.getId(), reporterUserId, null));
+        }
+        // Admin/system reports may ask to be auto-posted to Facebook/X. Rows are inserted now (same
+        // transaction as the report, so a rollback here also drops them); the actual network calls
+        // are deferred to an after-commit hook and run @Async, so a Meta/X outage can never fail or
+        // slow down this request.
+        if (isSystem && req.socialNetworks() != null && !req.socialNetworks().isEmpty()) {
+            socialPublishService.enqueue(saved, req.socialNetworks(), req.socialCaption());
+            Integer reportId = saved.getId();
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        socialPublishService.publish(reportId);
+                    }
+                });
+            } else {
+                // No active transaction synchronization (e.g. a test invoking this outside a
+                // managed transaction) — publish immediately rather than silently drop it.
+                socialPublishService.publish(reportId);
+            }
         }
         sse.broadcast("report-created", saved.getId());
         log.info("[reports] created reportId={} by userId={}", saved.getId(), reporterUserId);

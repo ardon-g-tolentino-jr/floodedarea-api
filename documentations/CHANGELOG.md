@@ -4,6 +4,99 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [feat-social-auto-post] — 2026-08-06
+
+**Summary:** Admin "system" flood reports (news/other-source incidents logged via the incident
+modal) previously reached the FloodedArea Facebook Page and X account only if a human clicked
+through the per-report ShareModal. baha-api now publishes the report itself — server-side,
+asynchronously, after the create transaction commits — the moment an admin asks for it, tracking
+every attempt in a new `social_post` table. This entry covers the backend half only; the frontend
+half (per-report toggle, caption preview, AdminPanel kill switches + retry list) ships in
+baha-ui branch `059-feat-social-auto-post`.
+
+### Frontend
+- None in this repo — see the paired baha-ui branch `059-feat-social-auto-post` for the admin
+  incident-modal toggle, caption composer, and AdminPanel social-post list.
+
+### Backend
+- `config/SocialProperties.java` (new): `@ConfigurationProperties("baha.social")` — master
+  `enabled` switch (default false), `dryRun` (default **true** — logs the payload instead of
+  calling the network so a misconfigured deploy can't post garbage), `maxAttempts`, this backend's
+  own public origin (`apiBaseUrl`, needed because publishing runs detached from any request), and
+  nested Facebook Page / X credential blocks.
+- `entity/SocialPost.java`, `enumeration/SocialNetwork.java` (`facebook`, `x`),
+  `repository/SocialPostRepository.java` (`findByReportId`, `findTop50ByOrderByCreatedAtDesc`,
+  `findRetryable`).
+- `dto/CreateReportRequest.java`: added optional `socialNetworks` (`["facebook","x"]`) and
+  `socialCaption` (client-composed body, max 1000 chars, no URL — the backend appends the deep
+  link once the report id exists).
+- `service/FloodReportService.create()`: for a `system` report with `socialNetworks` requested,
+  inserts `pending` `social_post` rows in the same transaction as the report (a rollback drops
+  them too), then registers a `TransactionSynchronization.afterCommit()` hook that fires the
+  actual publish. The publish itself is `@Async` (new `ThreadPoolTaskExecutor` bean +
+  `@EnableAsync`/`@EnableScheduling` on `BahaApiApplication`) — POST /reports latency is
+  unaffected and a Meta/X outage can never fail an admin's report.
+- `service/SocialPublishService.java`: composes the final caption (client caption, or a minimal
+  fallback built from severity/depth/trend/district, plus the deep link), skips a network when
+  disabled globally, disabled via the new `app_setting` flags, or missing credentials (row →
+  `skipped` with a reason), delegates to the posters, and records `sent`/`failed` with
+  `external_id`/`external_url`/`last_error`. A `@Scheduled(fixedDelayString="PT5M")` sweep retries
+  `pending`/`failed` rows under `max-attempts` with a rough exponential backoff.
+  In dry-run the row is marked `skipped` (never `sent`) with the reason recorded — nothing reached
+  the network, and the admin's Retry can republish it for real once tokens are live.
+- `service/social/FacebookPoster.java`: `POST /{page-id}/photos` when the report has a photo
+  (URL = this backend's own public photo endpoint, the same one `ShareHtmlService` hands
+  crawlers), else `POST /{page-id}/feed` with a `link` back to the report's own
+  `GET /reports/{id}/share` OG page so the link-card carries the report's own details.
+- `service/social/XPoster.java` + `service/social/OAuth1Signer.java`: posts via X API v2
+  (`POST /2/tweets`), hand-signed OAuth 1.0a HMAC-SHA1 (`javax.crypto.Mac`, no new dependency) —
+  X user access tokens don't expire, so there's no refresh flow. Uploads a photo first via the
+  v1.1 media endpoint when present; truncates to X's 280-char budget (a trailing URL always costs
+  23 chars regardless of length) before sending.
+- Both posters: 5s connect / 10s read timeouts; a non-2xx is retried by the sweep except
+  400/401/403, which mark the row `failed` immediately (a bad token should page a human, not
+  retry three times).
+- `service/AppSettingService.java` / `dto/SettingsResponse.java` / `dto/UpdateSettingsRequest.java`:
+  two new keys, `social_autopost_facebook` and `social_autopost_x`, following the exact
+  `chat_enabled` upsert/read pattern — a no-deploy per-network kill switch for the Admin panel.
+- `controller/SocialPostController.java` (new): `GET /social-posts` (latest 50, newest first) and
+  `POST /social-posts/{id}/retry` (resets attempts, republishes one row), both ADMIN-only.
+- `config/SecurityConfig.java`: registered `/social-posts/**` (GET + POST) as ADMIN-only, next to
+  the existing `/settings` rules.
+
+### Database
+- setup.sql appended: yes — `social_post` table (unique on `(report_id, network)` so re-publishing
+  an already-posted report is a DB-level no-op), its indexes/trigger, and the two
+  `social_autopost_*` `app_setting` seed rows.
+- Migration: `db/migrations/feat/social-auto-post/20260806_social_auto_post.up.sql`
+- Rollback:  `db/migrations/feat/social-auto-post/20260806_social_auto_post.down.sql`
+  (irreversible: drops the full history of Facebook/X publish attempts)
+- **Not yet applied to any database** — run the migration when this branch is deployed.
+
+### Config / Env
+- `SOCIAL_ENABLED` (default `false`) — master switch.
+- `SOCIAL_DRY_RUN` (default `true`) — log the payload instead of calling the network.
+- `SOCIAL_MAX_ATTEMPTS` (default `3`).
+- `SOCIAL_API_BASE_URL` (default empty) — this backend's own public origin; required for Facebook
+  posting (photo URL / share-page link) to actually run — Facebook posting is skipped, not
+  crashed, while it's blank.
+- `FB_PAGE_ID`, `FB_PAGE_TOKEN` (default empty), `FB_GRAPH_VERSION` (default `v21.0`).
+- `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` (default empty).
+- No secrets committed — every credential env var defaults to an empty string.
+
+### Testing
+- `mvn -q -DskipTests compile` and `mvn -q test` — both clean.
+- Not yet exercised against real Facebook/X — see external prerequisites below; run with
+  `SOCIAL_DRY_RUN=true` until they clear.
+- **External prerequisites (gate the "live" date):** Meta app with `pages_manage_posts` +
+  `pages_read_engagement`, App Review (required to post to a Page you don't own as a developer),
+  and a long-lived Page token (or non-expiring Business Manager System User token). X: the Free
+  tier's write cap (~500 posts/month) is too low for production use — Basic tier, an Elevated
+  project with read-write app permissions, and access token/secret regenerated *after* switching
+  to read-write.
+
+---
+
 ## [058-feat-admin-report-flood-via-incident-modal] — 2026-08-06
 
 **Summary:** Admins had two report entry points in the top bar — the shared blue "Report flood"
