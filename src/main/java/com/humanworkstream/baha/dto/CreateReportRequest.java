@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 /** Citizen-submitted flood report. The reporter is taken from the JWT, never the body. */
 public record CreateReportRequest(
@@ -29,5 +30,12 @@ public record CreateReportRequest(
         /** Admin/system reports only: when the source reported the flood. Defaults to now. */
         OffsetDateTime reportedAt,
         /** Admin/system reports only: how long the report stays live, in minutes (severity default when null). */
-        Integer ttlMinutes
+        Integer ttlMinutes,
+        /** Admin/system reports only: networks to auto-publish this report to ("facebook", "x").
+         *  Null/empty = don't auto-post. */
+        List<String> socialNetworks,
+        /** Admin/system reports only: the post body composed client-side (no URL — the backend
+         *  appends the deep link once the report id exists). Falls back to a server-built caption
+         *  when absent. */
+        @Size(max = 1000, message = "Caption is too long.") String socialCaption
 ) {}

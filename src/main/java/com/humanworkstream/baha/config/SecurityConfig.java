@@ -56,6 +56,9 @@ public class SecurityConfig {
                 // ── Global app settings (e.g. community chat visibility) — public read, ADMIN write ──
                 .requestMatchers(HttpMethod.GET,   "/settings").permitAll()
                 .requestMatchers(HttpMethod.PATCH, "/settings").hasRole("ADMIN")
+                // ── Social auto-post (Facebook/X) attempt log + manual retry — ADMIN only ──
+                .requestMatchers(HttpMethod.GET,  "/social-posts/**").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.POST, "/social-posts/**").hasRole("ADMIN")
                 // ── Admin-only management writes ──
                 .requestMatchers(HttpMethod.POST,   "/centers/**", "/hotlines/**", "/alerts/**", "/flood-prone/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT,    "/centers/**", "/hotlines/**", "/alerts/**", "/flood-prone/**").hasRole("ADMIN")
