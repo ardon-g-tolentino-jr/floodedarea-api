@@ -4,6 +4,108 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [055-feat-admin-pin-location-and-zone-tagging] — 2026-08-06
+
+**Summary:** Three fixes to the "where is this flood?" half of the admin workflow. (1) The
+intersection finder in *Report a flood incident* was reported as not working. Two independent root
+causes, both verified against the live Overpass API. **(a)** OSM stores expanded street names
+("Aurora Boulevard"), but the modal's own placeholders say *"e.g. Aurora Blvd"* — a substring search
+for `Aurora Blvd` matched **zero** ways in the Quezon City bbox while `Aurora` matched
+"Aurora Boulevard", so correctly spelled input reported "no crossing found". **(b)**
+`overpass-api.de` failed **5 of 6** probe attempts (`504 Dispatcher_Client…timeout` "server too
+busy", once `429 rate_limited`; successful runs took 7–11 s), and `runQuery` collapsed network
+errors, 429s, 504s, malformed bodies and genuine no-matches all into `[]`, which the UI rendered as
+"No crossing found — check the spelling" — blaming the admin for the upstream's outage. (2) Admin
+place fields could only be searched, never pinned, so Name/District were typed by hand. (3) Logging
+an incident at a chronically flooded spot and marking that spot flood-prone were two disconnected
+trips through the Admin console.
+
+### Frontend
+- baha-ui v1.49.0:
+  - `src/api/overpass.ts`: rewritten transport + matching; the verified-correct QL escaping helpers
+    are unchanged.
+    - `streetPattern` now expands street-type abbreviations into alternation groups via a new
+      `STREET_TYPE_ALIASES` table (`ave|avenue`, `blvd|boulevard`, `st|street`, `rd|road`,
+      `hwy|highway`, `dr|drive`, `ext|extension`, `hts|heights`, `pkwy|parkway`) and rejoins tokens
+      with `TOKEN_SEPARATOR` (`[^A-Za-z0-9]+`) so "St Mary" also matches "St. Mary" and "C 5"
+      matches "C-5". This is root cause (a).
+    - New `IntersectionOutcome` discriminated union (`ok` / `none` / `unknown-city` / `busy` /
+      `aborted`) replaces the bare `Intersection[]` contract — only `none` and `unknown-city` may
+      ever say "check the spelling". Root cause (b).
+    - `runQuery` walks a mirror list (`overpass-api.de`, then `overpass.kumi.systems`, then
+      `overpass.private.coffee`), retrying each endpoint twice with 1.5 s/4 s backoff on a `busy`
+      outcome. `busy` covers 429, 5xx, network error, our own per-request timeout, malformed JSON,
+      and Overpass's "HTTP 200 with an error `remark`" case. `aborted` short-circuits so a closed
+      modal never burns the retry budget. Both mirrors were unreachable from the verifying network,
+      so they are best-effort extra chances — the retry/backoff is the actual fix.
+    - `withTimeout` is hand-rolled on a plain `AbortController` rather than
+      `AbortSignal.any`/`AbortSignal.timeout` (Chrome 116+ / Safari 17.4+ / Firefox 124+ only) —
+      otherwise every search on an older browser would have failed as `busy`.
+    - City scoping now resolves through Nominatim (`geocodeCityBBox`) into a bounding box instead of
+      Overpass's exact `area[name="…"]` match, so "QC" and trailing-"City" variants work; an
+      unresolvable city returns `unknown-city` rather than a misleading nationwide guess.
+      `cityQuery` was removed (superseded by the now-parameterised `bboxQuery`, whose `out center`
+      limit is no longer hardcoded to 3).
+  - `src/api/geocode.ts`: new `geocodeCityBBox(city, signal)` — `countrycodes=ph`, reorders
+    Nominatim's `boundingbox` (south/north/west/east) into Overpass's `s,w,n,e`; never throws.
+  - `src/components/panels/AdminReportIncidentModal.tsx`:
+    - Outcome-aware messaging: `busy` renders an amber panel with **Retry** and a one-click
+      **Pick on map** escape; `unknown-city` names the city that failed to resolve; `none` keeps the
+      original copy. A "Still searching — OpenStreetMap can be slow" line appears ~5 s in so the
+      7–11 s happy path doesn't look frozen.
+    - Bug fix: `onPickPlace` overwrote **District** unconditionally on every pick, so fine-tuning
+      the pin after choosing an intersection silently rewrote an admin's typed value. Now gated the
+      same way the name write is.
+    - New "⚠ Also mark this place as flood-prone" checkbox + radius input (default 500 m, floor
+      50 m) under Severity, with a local `SEV_TO_LEVEL` map (high→red, medium→orange, low→yellow).
+      `onSubmit` widened to `(b: NewReport, zone?: NewFloodProneArea) => Promise<void>`.
+  - `src/components/panels/AdminPanel.tsx`: the shared `type: 'place'` field (Shelters, Zones,
+    Reports) gains a `MapPickField` mini-map under `PlaceField`; both route through one
+    `pickLocation()` that reverse-geocodes and fills Name/District **only when blank**, plus an
+    explicit "Resolve name from pin" button that force-overwrites. In-flight reverse-geocodes are
+    aborted on a newer pick/unmount. Place fields are wrapped in a `div` instead of a `label` — a
+    click inside a `<label>` activates its first form control, which would have yanked focus to the
+    search box on every map click and fought the marker drag.
+  - `src/App.tsx`: `onReportIncident(b, zone?)` creates the report first (unchanged throwing
+    contract so the modal stays open on failure), then best-effort creates the zone in its own
+    try/catch — a zone failure only changes the toast text, never the report.
+  - `package.json`: 1.48.0 → 1.49.0. `dist/` rebuilt.
+
+### Backend
+- None. `POST /flood-prone` (`FloodProneAreaController`) and `mutations.createFloodProneArea`
+  already existed; this branch only calls them from a new place.
+
+### Database
+- setup.sql appended: no
+- Migration: none — no schema change
+- Rollback:  none
+
+### Config / Env
+- None. Overpass and Nominatim remain keyless, CORS-open, direct-from-browser calls.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean.
+- Verified against the live Overpass API before and after: `Aurora Blvd` matched 0 ways;
+  `Aurora` matched "Aurora Boulevard"; the alias-expanded query
+  `name~"Aurora[^A-Za-z0-9]+(blvd|boulevard)"` × `Katipunan[^A-Za-z0-9]+(ave|avenue)` returned the
+  real crossing nodes at 14.6317615, 121.0740667.
+- Browser smoke test (`npm run dev:mock`, seeded ADMIN session):
+  - `Quezonn Cityy` → *"Couldn't find "Quezonn Cityy" — check the spelling, or leave City blank."*
+    (resolves fast, no Overpass call) — distinct from the no-match copy.
+  - `Aurora Blvd` / `Katipunan Ave` / `QC` → **two crossings returned**; the same input returned
+    nothing before this branch. Selecting one recentred the mini-map on the real
+    Aurora Boulevard × Katipunan Avenue junction and auto-filled Name/District ("3rd District").
+  - Posting with "Also mark this place as flood-prone" + radius 400 toasted *"System report posted.
+    Flood-prone zone added."* and created a zone with `radiusM: 400`, `level: red`,
+    `lastWarnedAt: null` — quiet, no broadcast, as designed.
+  - Admin → Zones → Add zone: search auto-filled Name "Cambridge Street" / District "District I";
+    a typed name survived a subsequent map click (no clobber); "Resolve name from pin" overwrote it
+    to "Harvard Street" on demand.
+  - Not covered: the `busy` retry/mirror path was not reproduced in-browser (Overpass happened to
+    be healthy during the run); it is exercised only by the direct API probes above.
+
+---
+
 ## [054-feat-flood-prone-zones] — 2026-08-05
 
 **Summary:** An admin can now pin persistent **flood-prone areas** (a point plus a radius) that
