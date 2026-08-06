@@ -4,6 +4,147 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [058-feat-admin-report-flood-via-incident-modal] — 2026-08-06
+
+**Summary:** Admins had two report entry points in the top bar — the shared blue "Report flood"
+button (which opened the Detailed/Quick chooser and dropped them into the citizen pin +
+`SeverityPicker` flow) and a separate indigo 🗞 "Report incident" button for the richer
+`AdminReportIncidentModal` (intersection lookup, map pin fine-tune, source, "reported N hours ago",
+TTL, flood-prone tagging). Admins log floods they read about, not floods they're standing in, so the
+citizen flow was dead weight. "Report flood" now opens the incident modal directly for admins and the
+separate incident button is gone. Two defaults were also tightened to match real usage: Source is now
+a dropdown preselected to **News**, and Low flooding seeds **8 cm** instead of 18 cm.
+
+Citizens are unaffected — the Detailed/Quick popover and pin flow are unchanged for them.
+
+### Frontend
+- baha-ui v1.52.0:
+  - `src/components/panels/TopBar.tsx`: removed the standalone `incidentBtn` (desktop) and its mobile
+    overflow `MenuItem`. The primary "Report flood" button now calls `onReportIncident()` when
+    `isAdmin`; the `ReportOptions` popover and its `aria-expanded`/`aria-haspopup` are gated on
+    `!isAdmin`. The `onReportIncident` prop is kept — it is now driven by the primary button.
+  - `src/App.tsx`: same branch for the mobile FAB — admins open the incident modal directly; the
+    fan-out card, scrim, `+` rotation and `aria-expanded` are gated on `!isAdmin`, and the admin
+    aria-label falls back to `topbar.report`.
+  - `src/components/panels/AdminReportIncidentModal.tsx`: the free-text "Source / note" input became
+    a **Source** `<select>` (`SOURCE_OPTIONS` = News / Social media / LGU advisory / Field report /
+    Other) defaulting to `News`, with a conditional free-text box when "Other" is picked. The derived
+    `sourceNote` keeps both prior behaviors: appended to the report name (`Aurora cor. Katipunan
+    (News)`) and used as the flood-prone zone's `note`. Validation (`canPost`) unchanged.
+  - `src/utils/floodMeta.ts`: `SEVERITY_PRESET.low.depthCm` 18 → 8. Global by design — the admin
+    modal, `SeverityPicker` one-tap post and `QuickReportSheet` all read the preset. `DEPTH_RANGE.low`
+    is 5–30 so 8 is a valid slider position, and `roadFromDepth(8)` is `passable`, consistent with the
+    preset's road. Side effect: `depthReference(8)` reads as the `soles` band instead of `ankle`.
+  - `src/i18n.ts`: removed the now-unused `topbar.incident` key.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` succeeds and `dist/` is rebuilt and committed.
+- Manual (admin session): no 🗞 button in the bar or the mobile ⋯ menu; desktop "Report flood" opens
+  the incident modal with no chooser popover; mobile FAB does the same with no fan-out; Source shows
+  **News** preselected and reveals a text box on "Other"; Low seeds the depth slider at 8 cm; a
+  default post's name ends in ` (News)` and the flood-prone zone note is `News`.
+- Manual (citizen/guest session): "Report flood" still opens the Detailed/Quick popover into the pin
+  flow; a one-tap **Low** report now posts 8 cm.
+
+## [057-feat-share-message-copy] — 2026-08-06
+
+**Summary:** Reworded the tail of the per-report share message. It used the site-wide `PITCH`
+("Track live flood conditions on FloodedArea — live crowd-sourced flood map for the Philippines:
+real-time reports, evac centers, road conditions & SOS rescue."), which is long enough to crowd X's
+280-char budget, only invites the reader to *track*, and names the brand without an address. The new
+tail invites the reader to report too, names the domain, and ends on a colon that leads into the link.
+
+New output (all networks — X, Facebook, WhatsApp, Telegram, email, Copy message):
+
+```
+⚠️ MEDIUM flooding reported on Ortigas Ave (News) (Pasig) — ~30 cm, receding. 4 active flood reports nearby.
+
+Track or report live flood conditions on FloodedArea.com — live crowd-sourced flood map:
+<link>
+```
+
+### Frontend
+- baha-ui v1.51.0:
+  - `src/utils/share.ts`: added `REPORT_PITCH`; `buildReportShareText` now closes with it instead of
+    `` `Track live flood conditions on ${PITCH}` ``. The `⚠️`, severity/place/depth/trend clauses and
+    `activityClause` are unchanged, as are `title`, `text` (body + URL + the Facebook follow line) and
+    the `ShareText` shape.
+  - `PITCH`, `buildShareText` (the "I just reported…" and generic-visitor messages) and
+    `buildShareLinks` are untouched — only the per-report message changed.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` — clean; `npm run build` — succeeds, `dist/` rebuilt and committed.
+- Rendered `buildReportShareText` + `buildShareLinks` through vite-node: body matches the target text
+  verbatim, X payload is 222 chars including a 23-char t.co link (under 280), and the degenerate case
+  (no district, `trend: 'steady'`, no other active reports) collapses to
+  `⚠️ MEDIUM flooding reported on Ortigas Ave (News) — ~30 cm.`
+
+---
+
+## [056-feat-report-card-actions] — 2026-08-06
+
+**Summary:** Cleaned up the action stack on the flood-report detail card. The share button was
+labeled "Share to Facebook" in Facebook blue, but the action isn't Facebook-specific — on mobile with
+a photo it opens the native share sheet, where the user picks any app; only the desktop fallback goes
+to Facebook's web sharer. It is now a neutral, primary-colored **"Share Report"** button. The owner-
+only **"📍 Show my location"** button was removed: it recentered the map on *the report*, not on the
+user, and duplicated the floating locate control and tapping the marker itself.
+
+### Frontend
+- baha-ui v1.50.0:
+  - `src/components/panels/ReportDetailCard.tsx`:
+    - Share button relabeled `Share to Facebook` → `Share Report`; background `#1877F2` →
+      `var(--bw-primary)`; the `ⓕ` glyph replaced by a neutral 24×24 inline-SVG share glyph
+      (`SHARE_GLYPH`, `fill="currentColor"`). Click behavior unchanged — still `onShareReport`.
+    - Removed the "Show my location" button and the `onShowLocation` prop; the `canRemove` branch
+      collapsed back from a fragment to the `confirmRemove` ternary.
+  - `src/App.tsx`: dropped the now-unused `onShowLocation` prop at the `ReportDetailCard` call site.
+    `setMapFocus` is untouched (≈15 other call sites: locate button, sidebar rows, activity feed,
+    dedupe toast).
+  - The confirm button ("I'm seeing this too — confirm", `report.confirmCta`) is unchanged, including
+    its `canConfirm={!selectedReport.mine}` gating.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` — clean (also proves no stale `onShowLocation` reference).
+- `npm run build` — succeeds; `dist/` rebuilt and committed.
+- Manual: own report → `Share Report` + `Remove my report` only; someone else's report →
+  `Share Report` + confirm CTA; share flow opens as before on desktop and mobile layouts.
+
+---
+
 ## [055-feat-admin-pin-location-and-zone-tagging] — 2026-08-06
 
 **Summary:** Three fixes to the "where is this flood?" half of the admin workflow. (1) The
