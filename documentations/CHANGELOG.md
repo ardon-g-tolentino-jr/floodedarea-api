@@ -4,6 +4,75 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [068-feat-flood-prone-reports-and-bubbles] — 2026-08-10
+
+**Summary:** Flood-prone zones were nearly inert — a faint dashed circle with a hover-only tooltip,
+and "⚠ Warn" (a broadcast alert) as their only action. So when a storm hit, an admin who already
+knew the ten places that flood had to re-enter every one by hand through the incident modal. Zones
+can now be promoted to live reports in bulk, they carry a readable Google-Maps-style callout on the
+map that escalates when water is actually there, and the two things that made admin pinning slow —
+the incident modal opening on the Intersection tab, and search results that couldn't tell two
+same-named streets apart — are fixed. Frontend-only; no API or schema change.
+
+### Frontend
+- **Zone → live report.** New `ZoneReportModal.tsx`: checkbox list of active zones (all ticked),
+  one shared severity/depth/TTL for the batch, "Post N reports". Reached from a
+  `⚡ Report flooding on zones…` button on Admin → Zones, or per zone from a row's `⚡ Report now`
+  and from a map bubble tap. `App.reportZones` posts sequentially as `system: true` reports and
+  reports a partial tally (`Posted N of M`) rather than failing all-or-nothing.
+- Duplicate guard: a zone with an active report within 150 m (`kmBetween`) renders disabled and
+  unticked as "Already reported nearby", so a second pass during the same event can't double-post.
+- Deliberately **no** Facebook/X auto-post on the batch — N zones would mean N separate posts. The
+  success toast points at the consolidated flood digest (066) instead.
+- **Map bubbles.** Each active zone gets a permanent callout pill above its circle: level-colored
+  `⚠ {name} / Flood-prone` when quiet, red + pulsing `🔴 {name} / Flooded now · N cm` when a live
+  report sits inside its radius (`viewModel.zonesWithStatus`, pure). Gated to zoom ≥ 13
+  (`ZONE_LABEL_MIN_ZOOM`) so a zoomed-out Metro Manila view stays readable, and drawn in a custom
+  Leaflet pane at z-index 399 so a bubble never paints over a live report pin.
+- Wired the previously-unused `showFloodProne` prop to a new **Flood-prone** chip in the sidebar's
+  SHOW ON MAP strip (hides circles and bubbles together; counted in the Filters badge).
+- **Admin "Pick on map" is now the default** location tab in the incident modal, and its mini-map
+  renders immediately — centered on the admin's location, with a "Tap the map to drop the pin" hint
+  (`MapPickField` gained `pinned`). Previously the map only appeared *after* a search had already
+  resolved coordinates, so the tab named "Pick on map" could not be used to pick on a map.
+- **Search results carry barangay/city.** `searchPlaces` now requests `addressdetails=1`
+  (limit 6 → 8) and returns `primary` + `context` alongside the unchanged `label`; the shared
+  `pickCity`/`pickBarangay` helpers are now used by both `searchPlaces` and `reverseGeocode`. New
+  `PlaceSuggestion.tsx` renders a bold name over a muted `barangay · city · province` line and
+  replaces three near-identical inline implementations (`SearchBox`, `PlaceField`,
+  `PublicDashboardModal`). "Rizal Street" now resolves visibly to Binangonan vs. Bacoor vs. Taguig
+  instead of four identical truncated rows. `PlaceField` also gained the `near` bias `SearchBox`
+  already had.
+- Fixes found while verifying: zone rows in Admin → Zones now wrap (a fourth action button had
+  squeezed the zone name to an ellipsis); `AdminWarnZoneModal` and `ZoneReportModal` moved to
+  z-index 1300 — both are opened *from* the admin console, which sits at the same 1200 and renders
+  later in `App`'s JSX, so it won the tie and buried them. **The existing "⚠ Warn" button was
+  affected by this too and appeared inert.**
+- Version: 1.57.0 → 1.58.0.
+
+### Backend
+- None. `POST /reports {system:true}` and `GET /flood-prone` already existed.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean.
+- Verified against `npm run demo` (json-server mock, 3 seeded zones): bulk post of 3 zones →
+  `Posted 3 of 3`, pins on the map, bubbles flipped to red "Flooded now · 108 cm", status card moved
+  to STAY ALERT; reopening the modal showed all 3 as "Already reported nearby" with Post disabled.
+  Zoom 13 → bubbles shown, zoom 12 → circles only. Flood-prone chip hid both layers. Incident modal
+  opened on Pick on map with a live map; one click filled Name "Tanguile Street" + District. Search
+  for "Rizal Street" returned four distinct barangay/city-qualified rows.
+- `mock-api/db.json` restored to its seed state after testing.
+
+---
+
 ## [067-feat-sidebar-controls-strip] — 2026-08-10
 
 **Summary:** Reclaims the sidebar for the report list. Everything above the Nearby / Live activity /
