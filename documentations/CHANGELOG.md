@@ -4,6 +4,73 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [066-feat-admin-flood-digest] — 2026-08-10
+
+**Summary:** Adds an admin-only **Flood digest** — one consolidated social post covering *every*
+currently-active flood report, grouped by city, with each report's time, severity, depth, trend and
+road status. Until now the only way to post a flood situation was one report at a time through the
+per-report auto-post ticked in the incident modal, which during a real event means a dozen separate
+posts instead of a single situational roundup. A dedicated 📣 button in the TopBar (ADMIN only)
+opens a preview modal that hands the digest to the Facebook and X composers.
+
+Publishing is **client-side by design** — this branch deliberately does not touch
+`SocialPublishService` or the `social_post` table, so nothing here can affect the existing
+server-side auto-post pipeline or its kill switches.
+
+Two consequences of the client-side choice, recorded so they aren't rediscovered later:
+- Facebook's `sharer.php` accepts **a URL only** (the `quote` param was deprecated in 2017), so the
+  Facebook button copies the digest to the clipboard and opens the composer for the admin to paste.
+  X's `intent/tweet` does accept prefilled text, so X is one click.
+- A client-side share posts as whoever is signed into Facebook in that browser, not automatically as
+  the FloodedArea Page. Posting *as the Page* with real text and no pasting would require a new
+  server-side digest endpoint on top of `SocialPublishService` — not done here.
+
+### Frontend
+- `src/utils/share.ts`: new `buildFloodDigest(reports, now, url): FloodDigest` plus the private
+  `groupByCity` / `digestReportLine` / `buildDigestXBody` helpers. Pure per the `utils/` convention —
+  `now` and `url` are passed in. Groups by `localityParts(district).city` (`FloodReport` carries no
+  `city` field), orders cities and reports worst-first by `SEV_RANK` then depth, and caps the long
+  form at 6 cities / 4 reports per city with "…and N more" lines. Emits a second X-sized variant
+  (per-city tally + worst report) trimmed to the 280-char budget by dropping trailing cities, then
+  the "Worst:" line, then hard-truncating — so the string sent to the intent is never over budget.
+  `X_URL_COST` (23) and `X_LIMIT` (280) were lifted here from `AdminReportIncidentModal` so there is
+  one copy; that modal now imports them.
+- `src/components/panels/FloodDigestModal.tsx` (new): preview dialog modelled on `ShareModal`
+  (bottom sheet on mobile, card on desktop). Editable textarea seeded from the digest — it follows
+  the 15 s recompute until the admin types, then stops so a background refresh can't eat an edit.
+  Read-only X preview with a live `n/280` counter, three actions (Copy & open Facebook / Post to X /
+  Copy text), and a disabled empty state when nothing is active.
+- `src/App.tsx`: `digestOpen` state, the `floodDigest` memo over the existing `active` list, the
+  `postDigestFacebook` / `postDigestX` handlers (clipboard + `window.open`, side effects kept out of
+  `utils/`), and the ADMIN-gated modal render.
+- `src/components/panels/TopBar.tsx`: sky-tinted admin-only `digestBtn` beside the existing Response
+  and Admin buttons; mirrored in the mobile overflow menu. New `onFloodDigest` prop.
+- `src/i18n.ts`: `topbar.floodDigest` (en/fil).
+- Version 1.55.0 → **1.56.0**; `dist/` rebuilt and committed.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none (no schema change)
+- Rollback:  none
+
+### Config / Env
+- None. No new variables; the `SOCIAL_*` / `FB_*` / `X_*` settings from `065` are not involved —
+  the digest never reaches the server.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` succeeds.
+- `buildFloodDigest` executed directly against synthetic reports for: empty, single report, the
+  3-city typical case, the cap case (8 cities with 6 reports in one → "…and 2 more in this area" /
+  "…and 2 more cities"), a 24-report/12-city X stress case (trimmed to 276/280, never over), and a
+  report with `reportedAt` set (confirms the source time wins over `createdAt`).
+- Manual: admin-only visibility of the TopBar button, live drop-out of reports as their TTL expires,
+  and both composers opening with the expected contents.
+
+---
+
 ## [065-feat-social-autopost-enable] — 2026-08-10
 
 **Summary:** The admin auto-post pipeline shipped in `feat-social-auto-post` has never actually
