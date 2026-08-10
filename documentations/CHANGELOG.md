@@ -4,6 +4,60 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [067-feat-sidebar-controls-strip] — 2026-08-10
+
+**Summary:** Reclaims the sidebar for the report list. Everything above the Nearby / Live activity /
+Archive tabs was `flex: none`, so the list — the only flexible child — was squeezed to ~145 px of an
+850 px sidebar (under 20 %), and that was with all four config sections *already collapsed*: ~160 px
+went to empty section headers alone and the always-expanded alerts block cost more than all four
+collapsed sections combined. The five stacked sections are now one compact accordion chip strip, and
+the list is given a structural 50 % floor.
+
+### Frontend
+- `Sidebar.tsx`: five stacked `CollapsibleSection`s (Trip / Filters / Roads / Affected area /
+  Monitoring area) replaced by a single ~40 px chip strip — **Trip · Filters · My area** — with at
+  most one body open at a time. Defaults to all closed; the open panel persists to
+  `baha_sidebar_panel_v1` (replaces `baha_sidebar_sections_v3`, which is simply no longer read).
+- Regrouped, with no control changed or removed: *Filters* now holds the severity chips, the
+  Shelters / Flooded-roads layer toggles (`SHOW ON MAP`) and the road-condition chips plus Search
+  roads (`ROAD CONDITION`); *My area* holds the monitoring-radius slider, the water-rise projection
+  slider and the Nearby flood alerts button, which are all radius-scoped.
+- Chip badges surface what the collapsed group hides: Trip shows `⚠ n` / `✓` while a trip is
+  running, Filters shows how many of the eight map toggles are currently hiding something, My area
+  shows the monitoring radius (or `+N cm` when a projection is active).
+- Safety-status card trimmed: dropped the redundant `YOUR SAFETY STATUS` label (the badge says it),
+  tighter padding, and the grey advisory sub-line now renders only when the tone is WARN or DANGER.
+- Summary counts shortened to one line (`● 1 high · 1 active · ▬ 1 impassable`) — it previously
+  wrapped to two or three lines at 386 px.
+- Layout: controls are now the only shrinkable child (`flex: 0 1 auto`, scrolls internally) and the
+  list takes `flex: 1 0 50%`, so with panels closed it is guaranteed half the sidebar. While a panel
+  is open the list yields to a 168 px floor so the opened panel gets real room. Mobile is unchanged —
+  still one column in normal flow, no nested scroller.
+- `TripPanel.tsx` returns its body only; the strip owns the heading and open state (drops
+  `baha_trip_open_v1`). The mobile trip sheet in `App.tsx` supplies its own heading and padding.
+- `CollapsibleSection.tsx` deleted — no remaining importers.
+- Measured on an 827 px sidebar: list went from ~145 px (18 %) to 425 px (51 %).
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- None. UI version 1.56.0 → 1.57.0.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean.
+- Verified in Chrome against the json-server mock: closed-state split measured at 51 % list; each
+  chip opens in isolation and `aria-expanded` tracks it; open panel restored from
+  `baha_sidebar_panel_v1` after reload; sliders, layer toggles, Search roads and the alerts button
+  all still drive the map and modals; Trip chip badge confirmed in both `✓` and `⚠ 1` states; a
+  freshly posted nearby high report flipped the status card to STAY ALERT and brought the advisory
+  sub-line back; mobile branch confirmed to have no nested scrollers.
+
 ## [066-feat-admin-flood-digest] — 2026-08-10
 
 **Summary:** Adds an admin-only **Flood digest** — one consolidated social post covering *every*
