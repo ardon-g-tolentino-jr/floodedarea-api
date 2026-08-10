@@ -4,6 +4,68 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [065-feat-social-autopost-enable] — 2026-08-10
+
+**Summary:** The admin auto-post pipeline shipped in `feat-social-auto-post` has never actually
+published anything, and not because of a code gap: `baha.social.enabled` defaults to `false`,
+`baha.social.dry-run` to `true`, and `docker-compose.yml` passed **none** of the ten social
+variables into the `api` container — so the Facebook/X credentials had no delivery path in a
+containerised deploy and every ticked post landed as `skipped`. This branch plumbs those variables
+through, documents the tokens and their scopes, and writes down the rollout order. No behaviour
+changes on its own: every default stays at the safe value, so publishing still has to be switched
+on deliberately.
+
+Scope decision: auto-post stays **admin-only**. `FloodReportService`'s `system && role == ADMIN`
+gate is untouched, so citizen reports continue to ignore `socialNetworks` even if a crafted client
+sends them.
+
+### Frontend
+- None. No baha-ui source, version, or `dist/` change — the citizen report flow, `ShareModal`, and
+  the share intent buttons are all untouched.
+
+### Backend
+- No Java change. `FloodReportService`, `SocialPublishService`, `FacebookPoster`, and `XPoster` are
+  as shipped in `feat-social-auto-post`.
+- `docker-compose.yml`: the `api` service now forwards `SOCIAL_ENABLED`, `SOCIAL_DRY_RUN`,
+  `SOCIAL_MAX_ATTEMPTS`, `SOCIAL_API_BASE_URL`, `FB_PAGE_ID`, `FB_PAGE_TOKEN`, `FB_GRAPH_VERSION`,
+  `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET`, each with a `${VAR:-default}`
+  fallback matching `application.properties` — an unset variable keeps today's off-by-default
+  behaviour.
+- `README.md`: new "Social auto-post" section covering the admin-only gate, the two independent
+  control layers (env master switch vs. the live `app_setting` per-network kill switches), the
+  required token scopes, and the dry-run-first rollout order. Added the `/social-posts` and
+  `/social-posts/{id}/retry` admin rows to the endpoint table, and closed a stray code fence that
+  was swallowing the end of that table.
+
+### Database
+- setup.sql appended: no — `app_setting` already seeds `social_autopost_facebook` and
+  `social_autopost_x`, and this branch adds no schema.
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- `.env.example`: added the ten social variables plus `BAHA_PUBLIC_BASE_URL`, each with a comment.
+  Values are placeholders only; `.env` remains gitignored and no real token is committed.
+- **`SOCIAL_API_BASE_URL` is the public base URL of the API, not the site.** `FacebookPoster`
+  builds the photo URL as `<SOCIAL_API_BASE_URL><photoUrl>`, so a blank value fails every Facebook
+  post permanently with "baha.social.api-base-url not configured". Under the standard nginx deploy
+  the correct value is `https://floodedarea.com/api` (nginx strips the `/api/` prefix upstream).
+- Still required before anything publishes: a long-lived Facebook Page token with
+  `pages_manage_posts` + `pages_read_engagement`, and an X app set to Read and Write.
+
+### Testing
+- `docker compose exec api env | grep -E 'SOCIAL|FB_|X_'` — the variables now reach the container;
+  before this branch the grep returned nothing.
+- Dry run (`SOCIAL_ENABLED=true`, `SOCIAL_DRY_RUN=true`): post a system report as an admin with both
+  networks ticked → two `social_post` rows, status `skipped`, `lastError` "Dry run — payload logged",
+  caption visible in the Admin console and in the `[social] dry-run …` log line.
+- Live (`SOCIAL_DRY_RUN=false`): same post → rows flip to `sent` with a populated `externalUrl`.
+- Failure path: blank `X_ACCESS_TOKEN` → `failed` row carrying `lastError`, re-queued by Retry.
+- Kill switch: Facebook off in the Admin console → only the X row is created; no restart needed.
+- Citizen report → no `social_post` rows, confirming the admin-only gate.
+
+---
+
 ## [feat-social-auto-post] — 2026-08-06
 
 **Summary:** Admin "system" flood reports (news/other-source incidents logged via the incident

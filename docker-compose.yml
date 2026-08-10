@@ -37,6 +37,21 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       BAHA_CORS_ALLOWED_ORIGINS: ${BAHA_CORS_ALLOWED_ORIGINS:-http://localhost:*}
       BAHA_PUBLIC_BASE_URL: ${BAHA_PUBLIC_BASE_URL:-https://floodedarea.com}
+      # Social auto-post (admin/system reports → Facebook Page + X). Both switches default to the
+      # safe setting, so deploying this file never starts publishing on its own: SOCIAL_ENABLED must
+      # be turned on deliberately, and SOCIAL_DRY_RUN left at true logs the payload instead of
+      # calling the network. Tokens come from .env — never commit real values.
+      SOCIAL_ENABLED: ${SOCIAL_ENABLED:-false}
+      SOCIAL_DRY_RUN: ${SOCIAL_DRY_RUN:-true}
+      SOCIAL_MAX_ATTEMPTS: ${SOCIAL_MAX_ATTEMPTS:-3}
+      SOCIAL_API_BASE_URL: ${SOCIAL_API_BASE_URL:-}
+      FB_PAGE_ID: ${FB_PAGE_ID:-}
+      FB_PAGE_TOKEN: ${FB_PAGE_TOKEN:-}
+      FB_GRAPH_VERSION: ${FB_GRAPH_VERSION:-v21.0}
+      X_API_KEY: ${X_API_KEY:-}
+      X_API_SECRET: ${X_API_SECRET:-}
+      X_ACCESS_TOKEN: ${X_ACCESS_TOKEN:-}
+      X_ACCESS_SECRET: ${X_ACCESS_SECRET:-}
 
 volumes:
   postgres_data:
