@@ -4,6 +4,81 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [071-feat-flood-prone-filter] — 2026-08-11
+
+**Summary:** Promotes "Flood-prone" from a buried map-layer switch to a first-class filter on the
+main page. It was two clicks deep (open the Filters strip chip → find the chip in the wrapped
+"SHOW ON MAP" row) and it only drew or hid the dashed zone circles — it had no effect on the report
+list, the Nearby tab, or any count. Now it is always visible in the sidebar and genuinely filters:
+ON includes reports sitting inside a flood-prone zone, OFF removes them from the map, Nearby, Live
+activity, Archive and the chip counts. Pairs with 070 — the 399 seeded zones are what make this
+filter mean anything; before that seed the table shipped empty and the toggle governed nothing.
+Frontend-only: no API, schema, or config change.
+
+### Frontend
+- **Promoted control.** The flood-prone chip moved out of the Filters accordion body into a
+  full-width toggle row directly under the Trip / Filters / My area control strip
+  (`src/components/panels/Sidebar.tsx`). It is one control, not two — the old chip was deleted
+  rather than duplicated. Not a 4th strip chip: those are accordion openers carrying
+  `aria-expanded`, and at the fixed 386 px sidebar width a 4th chip gets ~83 px, too narrow for the
+  label at 12.5px/700 with `whiteSpace: nowrap`. The row carries `aria-pressed` and a live count —
+  "On · 12 included" / "Off · 12 hidden" — so an off state can never silently swallow reports.
+- **Real filtering** via a new `scoped` derivation in `src/App.tsx`, sitting between `active` and
+  everything list-facing. Deliberately broader than the severity/road chips, which only gate the map
+  and Nearby: flood-prone is a *scope* filter, and a scope filter that leaves the Activity tab full
+  of the reports you just asked to hide is broken. `visible`, `feed`, `archived`, `filterCounts`,
+  `roadCounts` and `totalCount` now read `scoped`.
+- **Safety signals deliberately excluded.** `computeStatus` (the safety banner), trip-stop matching,
+  the new-report notification effect, the road overlay, admin zone-dedup and the public
+  visit/share/digest counts all still read `active`/`enriched`. A display filter must never suppress
+  a safety signal — the banner still warns even with every report filtered out.
+- **New pure helper** `proneZoneReportIds(zones, reports)` in `src/utils/viewModel.ts`. Uses the
+  same containment rule as `zonesWithStatus` (report center within the zone's own `radiusM`), so the
+  filter hides exactly the reports the drawn circles cover. Deliberately *not* `matchingProneZone` —
+  that applies the 150 m `ZONE_MATCH_MIN_M` dedup floor, correct for admin de-duplication and wrong
+  here, since it would hide pins visibly outside every circle.
+- **Filters badge** no longer counts flood-prone (`filtersOff`): that badge explains hidden reports
+  while the panel is *collapsed*, and the toggle now explains itself permanently. Side effect: the
+  "eight map toggles" doc comment above it was stale (it was nine) and is accurate again.
+- i18n: added `sidebar.floodProneOn` / `sidebar.floodProneOff` (en + fil), mirroring the existing
+  `sidebar.alertsOn`/`alertsOff` copy shape.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- New localStorage key `baha_flood_prone_v1` ('1'/'0', absent ⇒ ON). The filter persists across
+  visits — it now decides what is in your feed, which is exactly the kind of preference that should
+  survive a reload, and the always-visible "Off · N hidden" row means an off state can't go
+  unnoticed. First-ever load is still ON.
+
+### Testing
+- `npm run typecheck` (the repo's only gate — no test runner, no linter): **exit 0, clean**.
+- `npm run build`: clean, `dist/` rebuilt and committed.
+- `proneZoneReportIds` fuzz-tested against the real 399-row seed from 070: 201,197 generated
+  reports spread over the Philippine bounding box, plus three probes per zone placed at
+  ±0.999 and ×1.001 of each zone's exact latitude-radius boundary. The latitude-band fast reject
+  matched brute-force haversine exactly — **0 missed, 0 false positives** — at 171 ms vs 2,003 ms.
+- **Not verified in a browser.** The Chrome extension was not connected in the session that wrote
+  this, so the promoted row's rendering, the mobile (≤768 px) layout and the toggle's live effect on
+  the list were not visually confirmed. Worth an eyeball before release: `npm run dev:mock`, then
+  check the row is visible without opening Filters, that toggling it moves both the map bubbles and
+  the Nearby/Activity/Archive lists, and that the safety banner still warns with the filter off.
+
+### Notes
+- The 399 seeded zones are generous (500-6,000 m radii), so a large share of real reports may fall
+  inside some zone — turning the filter off can thin the feed sharply. The "Off · N hidden" count is
+  the mitigation.
+- `filterCounts` now moves with the toggle, so with flood-prone off a severity chip can read 0 while
+  reports of that severity exist. Intended: counts must agree with the list in front of you.
+
+---
+
 ## [070-feat-flood-prone-seed-ph] — 2026-08-11
 
 **Summary:** Nationwide reference data for `flood_prone_area`. The table shipped in
