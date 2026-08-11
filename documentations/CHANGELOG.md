@@ -4,6 +4,60 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [070-feat-flood-prone-seed-ph] — 2026-08-11
+
+**Summary:** Nationwide reference data for `flood_prone_area`. The table shipped in
+054-feat-flood-prone-zones with no seed, so every deployment started empty and an admin had to pin
+each zone by hand. This branch adds a 399-row curated seed covering Luzon, Visayas and Mindanao —
+MMDA's flood-prone street list for NCR, the DENR–MGB top-ten flood-prone provinces, the PAGASA
+18 major river basins, and towns with documented recurring inundation. Data-only: no schema
+change, no Java change, no frontend change.
+
+### Frontend
+- None. The existing `GET /flood-prone` map bubbles and Admin > Flood-Prone Zones UI render the
+  seeded rows with no code change.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: **no** (no schema change — `flood_prone_area` already exists)
+- Migration: `db/migrations/feat/flood-prone-seed-ph/20260811_flood_prone_seed_ph.up.sql`
+- Rollback:  `db/migrations/feat/flood-prone-seed-ph/20260811_flood_prone_seed_ph.down.sql`
+- Depends on `db/migrations/feat/flood-prone-zones/20260805_flood_prone_zones.up.sql` having run.
+- Idempotency key is `(name, district)` via `WHERE NOT EXISTS`, so re-running never duplicates a
+  zone and never clobbers admin edits to `radius_m` / `level` / `note`.
+- Rollback deletes by the same `(name, district)` pairs. Admin-created zones outside the seed list
+  are untouched; `flood_alert.area_id` is `ON DELETE SET NULL`, so alerts issued against a deleted
+  zone survive as global alerts.
+- Row shape: 399 rows, `level` split by how often the area actually floods (red = nearly every
+  significant rain event, orange = every heavy monsoon or typhoon, yellow = extreme events only).
+  `radius_m` is scaled to the zone: street ≈ 500–1,200 m, town ≈ 1,500–3,000 m, delta/marsh
+  ≈ 3,000–6,000 m (Candaba Swamp is the widest at 6,000 m).
+
+**Caveat on the data:** latitude/longitude are approximate centroids of the named place, not
+surveyed hazard-polygon boundaries, and the pin+radius model is a circle over what is really an
+irregular floodplain. This is an advisory starting set for admins to refine through the Admin UI,
+not an authoritative hazard map — UP NOAH and DPWH GeoRiskPH remain the reference for actual
+susceptibility. Sources are listed in the header comment of the migration.
+
+### Config / Env
+- None.
+
+### Testing
+- All 399 rows machine-validated before commit: every row parses to exactly 7 fields; every
+  latitude falls in 4.0–21.5 °N and longitude in 116.0–127.0 °E (Philippine bounding box); every
+  `radius_m` satisfies `flood_prone_area_radius_check` (50–20,000); every `level` is a valid
+  `alert_level_t`; zero duplicate `(name, district)` pairs. Parentheses and quote escaping balance
+  in both up and down scripts.
+- **Not yet applied to a live database** — no local Postgres credentials were available in the
+  session that wrote it. Apply and verify with:
+  `psql "$DB_URL" -f db/migrations/feat/flood-prone-seed-ph/20260811_flood_prone_seed_ph.up.sql`
+  then `SELECT count(*), level FROM baha.flood_prone_area GROUP BY level;` and re-run the up
+  script once to confirm the count does not change.
+
+---
+
 ## [069-fix-ui-defect-batch] — 2026-08-11
 
 **Summary:** Five unrelated defects reported from live use of v1.58.0, shipped as one fix branch.
