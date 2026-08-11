@@ -4,6 +4,91 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [069-fix-ui-defect-batch] — 2026-08-11
+
+**Summary:** Five unrelated defects reported from live use of v1.58.0, shipped as one fix branch.
+Three of them had the same shape — a control that *looked* correct in isolation but was never
+checked against the thing it interacts with: a floating button z-indexed against a sibling it can't
+actually compete with, a backdate field validated independently of the lifetime it consumes, and a
+"Nearby" list whose radius control drew a circle but filtered nothing. Frontend-only; no API,
+schema, or config change.
+
+### Frontend
+- **Report FAB no longer covers the detail card's buttons.** On mobile the "+ Report flood" FAB and
+  the floating trip chip are root-level siblings of the map area, which is its own
+  `isolation: isolate` stacking context — so they paint above *everything* inside it, including the
+  detail sheet at z-index 1110. This is a sibling-context problem, not an ordering one, so no
+  z-index change can fix it; both are now gated on `!selectedReport && !selEvac` (the same values
+  the two detail cards are gated on) and simply don't render while a sheet is open. Share Report /
+  Confirm / **Remove my report** were the buttons being buried. Also gave the *desktop* detail card
+  `maxHeight: calc(100vh - 148px)` + `overflowY: auto` — it had neither, so a tall card ran off a
+  short viewport with no way to reach its bottom actions.
+- **Admin "Hours ago" can no longer post an already-expired report.** `REPORT_TTL_MIN` is
+  `{low: 20, medium: 45, high: 90}` — **minutes**, not hours — so "6 hours ago" on the default TTL
+  produced a report that was dead on arrival (`expiresInMin = max(0, ttl - age)` → 0), invisible on
+  the map the moment it landed. The input had `min={0}`, no `max`, and was never compared against
+  "Keep live for". The two fields are now validated against each other: the input carries a live
+  `max`, clamps on entry, shows the remaining lifetime ("Would stay live for 6h") or a red warning
+  naming the window, and **Post is disabled** while the backdate exceeds it.
+- **Flood-prone zones stop accumulating duplicates.** "⚠ Also mark this place as flood-prone"
+  unconditionally `POST`ed a new zone; nothing in the codebase mapped a `(lat,lng)` back to an
+  existing `FloodProneArea`, so every incident logged at an already-known place minted another row.
+  New pure helper `viewModel.matchingProneZone(zones, loc, excludeId?)` returns the nearest zone
+  whose circle (or a `ZONE_MATCH_MIN_M = 150` floor) contains the pin. Wired into three places: the
+  incident modal replaces the checkbox with a read-only "✓ Already flood-prone: {name}" chip;
+  `App.onReportIncident` re-checks against the freshest list before POSTing (the modal's snapshot
+  can be stale); and Admin → Zones refuses a duplicate with an inline error naming the match. A
+  matched zone is deliberately **never** PATCHed — its level/note/radius are admin-curated. The
+  Zones guard is scoped to creates and edits that *move* the pin, so the duplicates that already
+  exist in the data stay editable rather than being cleanable only by delete.
+- **Filters chip agrees with its count.** `StripChip` rendered a fixed plural label beside a bare
+  number ("Filters 1"). New `sidebar.panelFilterOne` key; 0 → "Filters", 1 → "Filter 1",
+  2 → "Filters 2". Same singular/plural idiom already used by `trip.reportsOne`/`reportsMany`. The
+  neighbouring "N high · N active · N impassable" strings are adjectives and were already
+  count-invariant.
+- **"Nearby" now means nearby.** The list was `visible` *sorted* by distance with no cutoff, so a
+  report 47.5 km away in Calumpit sat under Nearby while the safety banner directly above it read
+  "no reports within 2.5 km". It is now cut to `monitorRadiusKm` — the existing "My area" slider
+  (default 3 km, range 1–20), which until now was purely cosmetic: it drew the dashed map circle and
+  labelled a chip but filtered nothing. The selected report is kept regardless of distance so a
+  `?report=<id>` deep link or a marker tap never selects a row that isn't in the list. `visible`
+  itself is **not** filtered — the map still pins every live report, and Live activity / Archive are
+  untouched, so distant reports stay discoverable. New `sidebar.noneInRadius` empty state names the
+  radius and points at the control, distinct from the existing "no reports match the active filters".
+- Version: 1.58.0 → 1.58.1 (all five are defects → patch bump).
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean.
+- Verified in-browser against `npm run dev:mock` at a 500×667 mobile viewport (mock reports
+  re-stamped to now, since the seed data is timestamped June 2026 and expires instantly):
+  - Opening a report sheet hides the FAB and trip chip; Share Report and Confirm are fully
+    reachable; both controls return on close.
+  - Default TTL (high, 90 min): typing `6` clamps to `1`, hint reads "Would stay live for 30m".
+    TTL → 12 hours: `max` becomes 11, `6` accepted, "Would stay live for 6h". Dropping TTL back to
+    Default with 6 still set → red "Older than the 1h 30m window…" and Post disabled.
+  - Pin dropped inside a seeded zone → checkbox replaced by "✓ Already flood-prone: {name}";
+    posting created the report (13 rows) with the zone count unchanged at 4. Admin → Zones re-add at
+    the same searched place → refused, naming the existing zone. Two zones at identical coordinates:
+    renaming one still saves (edit path deliberately not blocked).
+  - Filters chip: 0 → "Filters", 1 → "Filter 1", 2 → "Filters 2".
+  - Nearby dropped from 10 rows to the 3 within 3 km while the summary still read "10 active" and
+    the map kept every pin; at 1 km the empty state read "No reports within 1 km. Widen "My area"
+    to see more."
+- `mock-api/db.json` restored to its seed state after testing.
+
+---
+
 ## [068-feat-flood-prone-reports-and-bubbles] — 2026-08-10
 
 **Summary:** Flood-prone zones were nearly inert — a faint dashed circle with a hover-only tooltip,
