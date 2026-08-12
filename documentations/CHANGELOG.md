@@ -4,6 +4,76 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [073-feat-monitor-area-warning-label] — 2026-08-12
+
+**Summary:** The live activity ticker now carries a **WARNING row** when an advisory has been issued
+anywhere inside the user's "My area" circle. Closes a real gap: the alert ribbon only fires once you
+are practically standing in the warned zone, so a warning 2 km away — squarely inside a default 3 km
+monitoring area — produced no visible signal at all. Frontend-only; no API, schema, Java or config
+change. baha-ui **v1.60.0 → v1.61.0**.
+
+### Frontend
+- **New ticker row** (`ActivityTicker.tsx`), tinted with the alert's own level palette via the
+  existing `LEVEL_STYLE`, reading e.g. *"⚠ WARNING — Flood-prone area: Tumana · issued within your
+  3 km area · +2 more nearby"*. It sits above the newest-report row because a standing advisory
+  outranks a single new report, and it renders **even when there are no reports at all** — "nothing
+  reported yet, but your area is warned" is precisely the state worth surfacing. Clicking opens the
+  same `AlertModal` the alarm path uses and focuses the map on the warned point. Dismissal is
+  tracked per row and keyed to the alert id, so closing the warning never silences the report row
+  and a newer warning reopens it.
+- **New pure helper** `alertsInMonitorArea(alerts, userLoc, monitorRadiusKm)` in `viewModel.ts`:
+  true circle intersection — a warning applies when
+  `distance(user, alertCenter) ≤ alertRadius + monitorRadius`. Returns nearest-first.
+- **It is fed the RAW alert list, deliberately not `alertsForUser`'s output.** That existing gate is
+  already cut to `zoneRadius + 300 m` ("are you standing in it?"), which would have discarded
+  exactly the warnings this label exists to catch — the ones near you but not on top of you.
+  Filtering the filtered list would have produced a label that could essentially never fire.
+- **Fails CLOSED when location is unknown**, unlike `alertsForUser`, which fails open. With no
+  location there is no monitoring area, so "issued within your area" would be a claim we cannot
+  make. Nothing is lost: the ribbon's fail-open still surfaces every geo warning to that user.
+- **Global alerts (no geometry) are excluded** from the label — an alert that applies everywhere is
+  not "in your area". It continues to show in the ribbon exactly as before.
+- This makes the **My area** slider mean something beyond the Nearby list for the first time; the
+  three radii in the app (`monitorRadiusKm`, `notifyPrefs.radiusKm`, `PROXIMITY_MARGIN_KM`) remain
+  otherwise independent and unchanged.
+- i18n: `ticker.warnTag`, `ticker.warnWithin`, `ticker.warnMore` (en + fil).
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no · Migration: none · Rollback: none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck`: **exit 0**. `npm run build`: **exit 0**.
+- Both proximity gates were ported to a scratch harness and run side by side against the same
+  fixtures (user at a fixed point, warnings placed due north at known distances, 3 km monitor
+  radius):
+
+  | scenario | ribbon (`alertsForUser`) | new label |
+  |---|---|---|
+  | 0.2 km away, 500 m zone | shown | shown |
+  | **2 km away, 500 m zone** | **not shown** | **shown** ← the gap this closes |
+  | 8 km away, 6 km marsh zone | not shown | shown |
+  | 20 km away, 500 m zone | not shown | not shown |
+  | inactive alert | not shown | not shown |
+  | global alert / no location | (fails open) | not shown, by design |
+
+- Boundary confirmed at exactly `zoneRadius + monitorRadius`: for a 500 m zone at a 3 km monitor
+  radius, a center distance of 3.49 km is in and 3.50 km is out — true circle intersection, not an
+  approximation.
+- Note for the record: the first harness run reported all-false. That was a defect in the **test
+  fixture** (`lat`/`lng` where the alert shape uses `latitude`/`longitude`, so every fixture was
+  treated as a geometry-less global alert), not in the source. Fixed and re-run before the table
+  above was recorded.
+- **Not verified in a browser** — no Chrome extension connection. Unconfirmed: the two-row ticker
+  layout, its mobile truncation behaviour, and the level-palette tinting as rendered.
+
+---
+
 ## [072-feat-flood-prone-scoped-warn] — 2026-08-12
 
 **Summary:** Three flood-prone changes in one branch: **reverts** 071's report-scoping (it hid real
