@@ -1,5 +1,8 @@
 package com.humanworkstream.baha.controller;
 
+import com.humanworkstream.baha.dto.BulkAlertResult;
+import com.humanworkstream.baha.dto.BulkWarnAreasRequest;
+import com.humanworkstream.baha.dto.ClearAreaWarningsRequest;
 import com.humanworkstream.baha.dto.WarnAreaRequest;
 import com.humanworkstream.baha.entity.FloodAlert;
 import com.humanworkstream.baha.entity.FloodProneArea;
@@ -53,5 +56,20 @@ public class FloodProneAreaController {
     public ResponseEntity<FloodAlert> warn(@PathVariable Integer id, @RequestBody(required = false) WarnAreaRequest req) {
         WarnAreaRequest body = req != null ? req : new WarnAreaRequest(null, null, null);
         return ResponseEntity.status(HttpStatus.CREATED).body(service.warn(id, body));
+    }
+
+    /**
+     * Warn many areas at once — one transaction, one SSE broadcast. Distinct path segment from
+     * {@code /{id}/warn} (one segment vs. two), so the two mappings can't collide.
+     */
+    @PostMapping("/warn-bulk")
+    public ResponseEntity<BulkAlertResult> warnBulk(@RequestBody BulkWarnAreasRequest req) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.warnBulk(req));
+    }
+
+    /** Deactivate the standing warnings raised from the listed areas — the undo for warn-bulk. */
+    @PostMapping("/clear-warnings")
+    public ResponseEntity<BulkAlertResult> clearWarnings(@RequestBody ClearAreaWarningsRequest req) {
+        return ResponseEntity.ok(service.clearWarnings(req));
     }
 }

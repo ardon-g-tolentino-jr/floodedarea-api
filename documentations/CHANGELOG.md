@@ -4,6 +4,112 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [072-feat-flood-prone-scoped-warn] — 2026-08-12
+
+**Summary:** Three flood-prone changes in one branch: **reverts** 071's report-scoping (it hid real
+user reports behind a layer switch), adds an **admin scoped bulk warn** so one action can warn every
+flood-prone area across an island group / province / city / single area, and makes **trip stops**
+say when a street floods in heavy rain. Includes the **backend bulk-warn endpoint** so a regional
+warn is one request and one SSE broadcast instead of one per zone. No schema or config change.
+
+### Frontend
+- **Reverted 071's report-scoping.** Toggling flood-prone off no longer removes in-zone reports from
+  the map, Nearby, Activity, Archive or the counts. `visible`, `feed`, `archived`, `filterCounts`,
+  `roadCounts` and `totalCount` derive from `active` again; the `scoped` / `proneReportIds` /
+  `floodProneCount` memos and `proneZoneReportIds` in `viewModel.ts` are deleted, not left dangling.
+  The reasoning in 071 was that a scope filter should be consistent everywhere — but the practical
+  effect was that turning off an *advisory overlay* silently took real crowd-sourced flood reports
+  off the map, which is the one thing this app must never do. Flood-prone is a map layer again.
+- The promoted sidebar row from 071 **stays**, relabelled to describe the layer: "On · {n} zones" /
+  "Off", fed the zone count rather than a report count, and counted in the Filters badge again.
+  The localStorage preference (`baha_flood_prone_v1`) is unchanged.
+- **Admin → Zones → "⚠ Warn an area…"** opens a new `AdminScopedWarnModal`: four cascading native
+  `<select>` dropdowns (island group → province → city → area), each defaulting to "All", each
+  populated from the live zone list filtered by the levels above it, each resetting the levels below
+  when changed, and each option carrying its zone count so the blast radius is visible before
+  committing. The scope is the narrowest non-"All" selection, so one control covers all four levels.
+  Scoped zones then appear as a checklist (all ticked, individually untickable) above the usual
+  title/body/level warn fields.
+- **Bulk warning is one request, and reversible.** The admin modal calls the new
+  `POST /flood-prone/warn-bulk` once, rather than looping the per-zone endpoint. Anything over 25
+  zones still needs an explicit inline confirmation stating the exact alert count, and a companion
+  **"Clear warnings in scope"** (`POST /flood-prone/clear-warnings`) deactivates what the warn
+  created. Alerts stay active until deactivated, so the undo is part of the feature, not a
+  nice-to-have. The client-side concurrency pool added mid-branch was deleted along with the loops
+  it existed to throttle.
+- **Trip stops now carry the advisory.** A stop inside a flood-prone zone shows "⚠ Floods in heavy
+  rain" under its label, and — when no report is live — its badge turns neutral grey "Clear now"
+  instead of green "✓ Clear". Green should never read as "safe street" for a street that floods.
+  Live report hits still outrank the advisory in the badge slot. Gated on the flood-prone toggle.
+- New pure module `src/utils/phGeo.ts`: `cityOf` / `provinceOf` / `islandOf` plus a 73-entry
+  province→island table. No DB change was needed because `flood_prone_area.district` is uniformly
+  `"City/Municipality, Province"`. An unknown province returns `null` — reachable by city/area scope
+  but not island/province, deliberately, rather than being silently mis-bucketed.
+
+### Backend
+- **`POST /flood-prone/warn-bulk`** (ADMIN) — `{ areaIds[], title?, body?, level? }` →
+  `{ affected, missingAreaIds[] }`. Writes every geo-stamped alert and bumps every `lastWarnedAt`
+  in **one transaction**, then emits **one** SSE event. The per-zone endpoint was the client's only
+  bulk path, so a region-wide warn cost one request *and one broadcast* per zone — and every
+  connected client refetches on every broadcast, so a Luzon-wide warn meant 271 round trips and 271
+  fan-outs. Now one of each.
+- **`POST /flood-prone/clear-warnings`** (ADMIN) — `{ areaIds[] }` → `{ affected, missingAreaIds[] }`.
+  Deactivates active alerts matched on `FloodAlert.areaId`. A global alert has a null `areaId` and
+  so is *structurally* incapable of being caught in the sweep, rather than merely filtered out.
+- The broadcast deliberately reuses the existing **`alert-created`** / `alert-deactivated` event
+  names. The web client subscribes to a fixed allowlist of event names, so a new name would be
+  silently ignored by every already-deployed client and the ribbon would never refresh.
+- Both paths share a private `buildWarning` helper with the single-zone `warn()`, so the copy an
+  admin sees can never depend on which path they used. Ids that no longer exist are skipped and
+  returned in `missingAreaIds` — losing 270 valid warnings because one zone was just deleted would
+  be the wrong trade. Input is de-duplicated, rejects empty, and is capped at 500 areas per call.
+- New: `BulkWarnAreasRequest`, `ClearAreaWarningsRequest`, `BulkAlertResult` DTOs;
+  `FloodAlertRepository.findByActiveTrueAndAreaIdIn`.
+- **No SecurityConfig change needed** — `POST /flood-prone/**` is already ADMIN-gated, so both new
+  paths inherit it. `/warn-bulk` is one path segment and `/{id}/warn` is two, so the mappings cannot
+  collide.
+
+### Database
+- setup.sql appended: no · Migration: none · Rollback: none
+- No schema change: `warn-bulk` writes the same `flood_alert` rows the per-zone warn already wrote.
+
+### Config / Env
+- None. (`baha_flood_prone_v1` from 071 is unchanged.)
+
+### Testing
+- `npm run typecheck`: **exit 0**. `npm run build`: **exit 0**. `mvn compile` (JDK 17): **exit 0**,
+  compared against a clean baseline compile taken before any edit.
+- **Derived-query validation.** `findByActiveTrueAndAreaIdIn` is a Spring Data derived query, which
+  fails at *context startup*, not compile time — the exact "compiles but isn't wired" trap this repo
+  has hit before. Parsed the method name through Spring Data's own `PartTree` against `FloodAlert`:
+  resolves to 2 parts. A deliberate negative control (`findByActiveTrueAndBogusFieldIn`) threw
+  `PropertyReferenceException`, proving the check isn't vacuously passing.
+- **Both endpoints exercised end-to-end** against the mock (which now implements them identically):
+  bulk warn of 3 real ids + 1 bogus → `affected: 3`, `missingAreaIds: [999999]`, batch not failed;
+  empty `areaIds` → HTTP 400; the same id three times → 1 alert (de-duplication);
+  clear scoped to 2 of 3 zones deactivated exactly those, left the third zone's warning active, and
+  **left the global (`areaId: null`) alert active**; re-running the clear → `affected: 0`.
+- `mock-api/server.cjs` gained matching `warn-bulk` / `clear-warnings` routes, declared before the
+  json-server router so `warn-bulk` is never parsed as a resource id. `db.json` was restored after
+  testing.
+- `phGeo.ts`'s province table cross-checked against all 399 seeded rows: 73 provinces in the seed,
+  73 in the table, **zero** in one but not the other, zero unmapped zones. Island split verified as
+  Luzon 271 / Visayas 64 / Mindanao 64 zones — the earlier planning estimate of ~197 for Luzon was
+  wrong and the safeguards were sized against the real figure.
+- District-format assumption verified: all 399 districts contain exactly one comma, so the
+  `"City, Province"` parse holds universally.
+- Fixed during review: the trip advisory was authored as a `<div>` inside a `<span>` (invalid
+  HTML — span is phrasing content). Changed to a block-display `<span>`.
+- **Not verified in a browser, and the Spring context was never booted** — no Chrome extension
+  connection and no local Postgres credentials. Unconfirmed: the cascading dropdowns' live
+  behaviour, the modal stacking above AdminPanel, the trip row's two-line layout, and the real
+  endpoints against a real database (they were verified against the mock and by static analysis).
+  **Deploy the API before the UI** — the UI now calls `warn-bulk` with no fallback to the per-zone
+  loop, so a UI-first deploy would 404 every scoped warn. Then smoke-test with a province-scoped
+  warn (~16 zones) and its clear before attempting an island-group warn.
+
+---
+
 ## [071-feat-flood-prone-filter] — 2026-08-11
 
 **Summary:** Promotes "Flood-prone" from a buried map-layer switch to a first-class filter on the
