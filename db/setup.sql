@@ -499,3 +499,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES    IN SCHEMA baha TO baha_use
 GRANT USAGE, SELECT                  ON ALL SEQUENCES IN SCHEMA baha TO baha_user;
 
 ANALYZE social_post, app_setting;
+
+-- ──────────────────────────────────────────────
+-- feat/predictive-water-level — admin "rain is falling now" toggle that flips the frontend's
+--   predictive water-level model from receding (default) to rising. Appended (idempotent). See
+--   db/migrations/feat/predictive-water-level/. No schema change — app_setting already exists.
+--   Unlike the other app_setting flags, a missing rain_active row defaults OFF.
+-- ──────────────────────────────────────────────
+INSERT INTO app_setting (key, value) VALUES ('rain_active', 'false')
+    ON CONFLICT (key) DO NOTHING;
+
+ANALYZE app_setting;
