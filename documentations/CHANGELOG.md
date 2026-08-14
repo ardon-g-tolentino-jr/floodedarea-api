@@ -4,6 +4,73 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [076-feat-flood-digest-og-and-x-copy] — 2026-08-14
+
+**Summary:** Two share-surface changes. The admin flood digest gains a **"Copy X post"** button —
+the paste-by-hand route into X's composer, which is the only one that can carry an image — and the
+**social share cover** (`og-cover.jpg`) is regenerated from the app's own national map instead of
+the old street-level snapshot, with a repeatable capture pipeline behind it. Frontend-only; no API,
+schema, Java or config change. baha-ui **v1.62.0 → v1.63.0**.
+
+### Frontend
+- **`FloodDigest.xCopyText`** (`utils/share.ts`) — the X-sized body with the link inline. The
+  existing one-click "Post to X" still sends `xBody` **without** the URL, because `intent/tweet`
+  appends the link itself via its `url` param; sending the copy variant there would post the link
+  twice. Costs exactly `xCharCount` either way: X bills any URL at a flat `X_URL_COST` regardless
+  of its real length, and that is the budget `xBody` was already trimmed against, so the copy
+  variant is guaranteed to fit 280 too.
+- **New `SITE_URL` constant** — the canonical public origin, matching `index.html`'s `og:url`.
+  `window.location.origin` is right for in-app share intents but would paste
+  `http://localhost:5176` into a public post when composing from a dev build.
+- **`FloodDigestModal`** gains the "Copy X post" button and its explanatory line; the X preview now
+  renders `xCopyText` (what both X paths actually produce) under a clearer *"X post — 280 chars
+  incl. link"* label.
+- **New social cover** — `public/og-cover.jpg`, 1200×630. The background is the real Leaflet map at
+  zoom 6 over the whole archipelago, live report dots and all, blurred into a background; the FLOOD
+  ALERT card is drawn by the capture harness and **never exists in the product**.
+- **`og:image` / `twitter:image` cache-buster bumped to `?v=2`**, and both `image:alt` strings
+  rewritten to describe the new art. Facebook and X cache scraped covers indefinitely; without the
+  bump they keep serving the old image.
+
+### Tooling (not shipped)
+- **`playstore-assets/og-frame.html`** — the capture harness. iframes the running app, pins
+  `.leaflet-container` full-bleed (neutralising the `isolation: isolate` stacking context that
+  otherwise lets the top bar paint over the map), digs the Leaflet instance out of React's fiber
+  tree for one exact animation-free `setView`, overrides geolocation to a demo fix so the capture
+  machine's real position can never reach a published image, and restates OSM's attribution
+  legibly above the blur.
+- **`playstore-assets/og-seed.mjs`** — adds ~160 reports in 29 clusters from Cagayan to General
+  Santos on top of the Marikina-only screenshot seed, which at archipelago zoom rendered as one
+  speck. Deterministic (seeded PRNG) and idempotent (rows tagged `ogScatter`). Cover art only —
+  these live in the local mock database and are never served.
+- **`playstore-assets/README.md`** — new "Regenerating the social cover" section: the procedure,
+  the centred-crop workaround (`sips` accepts `--cropOffset` and ignores it), and the framing
+  constraints that are easy to get wrong.
+- **`playstore-assets/og/` gitignored** — capture scratch and the design reference; the deliverable
+  is `public/og-cover.jpg`.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none — no schema change
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean, `dist/` rebuilt and committed.
+- Cover verified at 1200×630 after capture, with the report clusters legible in both the band above
+  the alert card (Luzon) and the band below it (Mindanao) — the failure mode of the first pass was
+  a wash heavy enough to erase them.
+- Digest modal driven in the running app against the mock (153 active reports, 31 cities): preview
+  renders the link-inline variant at **276/280**, "Copy X post" copies and toasts. The zero-report
+  branch of `buildFloodDigest` was checked by reading, not exercised — it needs an empty database.
+
+---
+
 ## [073-feat-monitor-area-warning-label] — 2026-08-12
 
 **Summary:** The live activity ticker now carries a **WARNING row** when an advisory has been issued
