@@ -1,7 +1,7 @@
 package com.humanworkstream.baha.controller;
 
 import com.humanworkstream.baha.dto.CreateReportRequest;
-import com.humanworkstream.baha.dto.UpdateReportStatusRequest;
+import com.humanworkstream.baha.dto.UpdateReportRequest;
 import com.humanworkstream.baha.entity.FloodReport;
 import com.humanworkstream.baha.enumeration.Severity;
 import com.humanworkstream.baha.security.SecurityUtils;
@@ -107,9 +107,9 @@ public class FloodReportController {
     }
 
     @PatchMapping("/{id}")
-    public ResponseEntity<FloodReport> updateStatus(@PathVariable Integer id,
-                                                    @Valid @RequestBody UpdateReportStatusRequest req) {
-        return service.updateStatus(id, req.status())
+    public ResponseEntity<FloodReport> update(@PathVariable Integer id,
+                                              @Valid @RequestBody UpdateReportRequest req) {
+        return service.update(id, req)
                 .map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
     }
 

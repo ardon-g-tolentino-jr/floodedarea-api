@@ -2,6 +2,7 @@ package com.humanworkstream.baha.service;
 
 import com.humanworkstream.baha.config.GeofenceProperties;
 import com.humanworkstream.baha.dto.CreateReportRequest;
+import com.humanworkstream.baha.dto.UpdateReportRequest;
 import com.humanworkstream.baha.entity.FloodReport;
 import com.humanworkstream.baha.entity.ReportConfirmation;
 import com.humanworkstream.baha.enumeration.ReportStatus;
@@ -157,10 +158,25 @@ public class FloodReportService {
         });
     }
 
+    /**
+     * Admin: apply any combination of corrections to an existing report. Each field is applied
+     * only when present (null = unchanged). Correcting {@code depthCm} also re-anchors
+     * {@code reportedAt} to now — an admin fixing the depth is a fresh observation, and the
+     * frontend's predictive projection restarts its curve from that timestamp rather than the
+     * original (possibly stale) report time.
+     */
     @Transactional
-    public Optional<FloodReport> updateStatus(Integer id, ReportStatus status) {
+    public Optional<FloodReport> update(Integer id, UpdateReportRequest req) {
         return reportRepository.findById(id).map(report -> {
-            report.setStatus(status);
+            if (req.status() != null) report.setStatus(req.status());
+            if (req.depthCm() != null) {
+                report.setDepthCm(req.depthCm());
+                report.setReportedAt(OffsetDateTime.now());
+            }
+            if (req.road() != null) report.setRoad(req.road());
+            if (req.severity() != null) report.setSeverity(req.severity());
+            if (req.trend() != null) report.setTrend(req.trend());
+            if (req.ttlMinutes() != null) report.setTtlMinutes(req.ttlMinutes());
             FloodReport saved = reportRepository.save(report);
             sse.broadcast("report-updated", id);
             return saved;

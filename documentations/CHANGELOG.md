@@ -4,6 +4,100 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [077-feat-predictive-water-level] — 2026-08-14
+
+**Summary:** A flood report was a frozen snapshot — `depthCm`, `road` and `trend` never changed
+after submit, so a 108 cm "impassable" report still read 108 cm two hours later, right up until its
+TTL silently dropped it. This adds a **predictive water-level model**: depth now steps hourly from
+the last real observation, receding by default and rising while an admin says rain is falling, with
+road condition following it through the existing `roadFromDepth` thresholds. The citizen's reported
+`depthCm` is **never overwritten** — the projection is derived and shown beside it, always labelled
+predictive. Admins gain a global rain toggle and per-report manual override (depth, road, +1 h
+extension). baha-ui **v1.63.0 → v1.64.0**.
+
+### Frontend
+- **The model** (`utils/floodMeta.ts`) — `DRAIN_CM_PER_HR` (low 10 / medium 18 / high 25 cm/hr) when
+  no rain is falling, `RAIN_CM_PER_HR` (rising +12 / steady +3 / receding −6) when it is. Deeper
+  floods shed more cm/hr in absolute terms yet still take longer overall to clear (108 cm ≈ 4.3 h vs
+  8 cm ≈ 0.8 h), mirroring `REPORT_TTL_MIN`'s existing Metro-Manila drainage rationale. Capped at
+  `PROJECT_MAX_CM` (250) and 2× the observed depth so a rising projection can't run away.
+- **`observationAnchorMs`** — the single anchor both the TTL countdown and the predictive curve hang
+  off: `reportedAt` for system reports (the source's observation time, possibly hours before an
+  admin logged it), `updatedAt` for everyone else, so a confirm or an admin depth override
+  re-anchors both. Lives in `floodMeta.ts` because `viewModel.ts` imports from it, never the reverse.
+- **Hour-stepped, not continuous** — `projectedHours` is `floor(elapsed / 1 h)`, so the figure moves
+  only on hour boundaries and never jitters between App's 15 s `now` ticks. No new timer: the
+  existing tick already re-renders everything time-derived.
+- **`EnrichedReport`** gains `projectedDepthCm`, `projectedRoad`, `projectedTrend`, `projectedHours`,
+  `predictive` and `drained`. `expired` now also gates on `drained`, so the projection can only ever
+  *shorten* a report's life — TTL stays authoritative and extension stays an explicit admin act.
+- **Fixed a pre-existing TTL defect.** `viewModel.ts` claimed a confirmation reset a report's
+  freshness window, but since baha-api's `@PrePersist` started always setting
+  `reportedAt = createdAt`, the `reportedAt ?? updatedAt` chain never fell through — confirms had
+  silently stopped extending report life. Now restored to the documented intent.
+- **Road overlay decays too** — `buildRoadDirectory` and `buildPossibleClosures` read
+  `projectedDepthCm` when present (optional field, so the raw-`FloodReport[]` caller in
+  `ResponseConsole` is unaffected), keeping the map, the road directory and the closure estimates in
+  agreement with the detail card.
+- **Chart** (`ReportDetailCard`) — the old "LAST 6 HOURS" sparkline was **entirely synthetic**
+  (`waterSeries` back-projected a curve that always terminated at the reported depth). Replaced with
+  `projectedSeries`: the observed anchor point plus one point per hour forward, drawn solid up to a
+  "now" divider and **dashed** after it. `sparkPaths` gained a `splitIndex` rather than growing a
+  second path builder. `trendNote` now quotes the real signed model rate, so its ETA copy always
+  agrees with the curve above it.
+- **`WaterLevelModal`** — on today only, hours after the current one render as dashed projected bars
+  (`buildDailyWaterBars` gained an optional `future` argument). Past days are untouched.
+- **Rain surfacing** — a non-dismissible ribbon under `AlertRibbon` and a banner on the detail card
+  whenever the flag is on, both stating the values are predictive rather than measured.
+- **Admin override block** on `ReportDetailCard`, gated on a new `isAdmin` prop: depth stepper
+  (seeded from the projected value), road segmented control, and **`+ Extend 1 hour`** which patches
+  `ttlMinutes` to the current effective TTL + 60 and stacks across taps. Reuses the existing
+  `onUpdateReport` → `adminAction` → refetch → toast path; no new endpoint function.
+- **`AdminPanel`** — a 5th global toggle, "Rain is falling now".
+- **Settings propagation** — no SSE event refetches `/settings`, so one admin flipping rain would not
+  have reached other clients until reload. App now polls `settings.refetch(true)` every 5 min, ample
+  given the model only steps hourly.
+
+### Backend
+- **`PATCH /reports/{id}` widened.** It was ADMIN-only but its DTO accepted **only** `status`, which
+  blocked the whole manual-override feature. New `UpdateReportRequest` takes nullable `status`,
+  `depthCm` (`@PositiveOrZero`), `road`, `severity`, `trend`, `ttlMinutes` (`@Positive`); null leaves
+  a column unchanged. `UpdateReportStatusRequest` deleted (single call site).
+  `FloodReportService.updateStatus` → `update(id, req)`.
+- **Depth corrections re-anchor.** Patching `depthCm` also sets `reportedAt = now()` — an admin
+  fixing the depth is a fresh observation, so the projection restarts from it rather than the
+  original (possibly stale) report time.
+- **SSE event name unchanged** — still broadcasts `report-updated`. baha-ui subscribes to a fixed
+  allowlist, so a new name would be silently ignored by every already-deployed client.
+- **`AppSettingService`** gained `isEnabled(key, fallback)`; `rain_active` reads with fallback
+  **false**. The existing one-arg `isEnabled` still defaults missing keys to true, so chat and
+  auto-post behavior is untouched. `SettingsResponse` / `UpdateSettingsRequest` gained `rainActive`.
+- `SecurityConfig` untouched — `PATCH /reports/**` remains `hasRole("ADMIN")`.
+
+### Database
+- setup.sql appended: yes — idempotent `rain_active` seed (defaults `'false'`), plus `ANALYZE`.
+- Migration: `db/migrations/feat/predictive-water-level/20260814_predictive_water_level.up.sql`
+- Rollback:  `db/migrations/feat/predictive-water-level/20260814_predictive_water_level.down.sql`
+- **No schema change** — `app_setting` is an existing key/value table, and `depth_cm` / `road` /
+  `ttl_minutes` / `reported_at` all already existed. Rollback discards the admin's current
+  `rain_active` choice; the app then falls back to OFF.
+
+### Config / Env
+- None. No new env vars, no new external service.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` succeeds and `dist/` rebuilt and committed.
+- `mvn -DskipTests compile` exits 0; no stale references to the removed DTO (repo carries no test sources).
+- Model verified numerically: at default TTLs the countdown always expires before the projection
+  drains out (low 0.33 h vs 1 h, medium 0.75 h vs 3 h, high 1.5 h vs 5 h), so `drained` only takes
+  effect on admin-extended reports — the intended design. Rain-on projections rise and clamp at the
+  2× cap.
+- Mock API (`mock-api/server.cjs`) mirrors both changes — `rainActive` in `/settings` (default off)
+  and a custom `PATCH /reports/:id` that bumps `updatedAt` (and `reportedAt` for system reports on a
+  depth change), since json-server's default PATCH would have left the anchor stale.
+
+---
+
 ## [076-feat-flood-digest-og-and-x-copy] — 2026-08-14
 
 **Summary:** Two share-surface changes. The admin flood digest gains a **"Copy X post"** button —
