@@ -4,6 +4,67 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [083-feat-quick-report-sliders-per-row-ttl] — 2026-08-29
+
+**Summary:** Two gaps in the Quick flood report page. Water depth was a typed number box — the only
+report form in the app not using a range slider — and a single time-to-live covered the whole batch,
+which is wrong on the facts: 23 cm of gutter water on Roxas Blvd clears in about two hours while
+152 cm in Barangay Damayan sits for six, so one shared TTL either drops the deep report while it is
+still dangerous or leaves the shallow one standing long after the road cleared. Depth is now a
+slider, and **every ticked location carries its own depth and its own lifetime**, pre-computed from
+that location's depth by the drainage model the app already ships. baha-ui **v1.66.1 → v1.67.0**.
+
+### Frontend
+- **`floodMeta.drainMinutes(depthCm, rainActive)`** — runs the observed depth down to `DRAINED_CM`
+  at that severity's `DRAIN_CM_PER_HR` (low 10 / medium 18 / high 25 cm/hr): the same recession model
+  the predictive water-level curve uses, integrated rather than stepped. `RAIN_HOLD_MIN` (120) is
+  added while the global rain flag is on — drainage cannot begin until the rain stops and there is no
+  forecast, so this is a flat documented allowance rather than fake precision. Yields ≈2 h at 23 cm,
+  ≈4 h at 114 cm, ≈6 h at 152 cm dry; each ~2 h longer with rain on.
+- **`TTL_STOPS_MIN`** — the durations a TTL slider can land on, deliberately non-linear (dense
+  through the 1–6 h band where real floods sit, coarse above it); a linear 30 min–48 h track would
+  bury that band in its first eighth. `nearestTtlStop` keeps a thumb and its label in agreement.
+- **`DEPTH_SLIDER_MIN_CM` / `MAX_CM`** — one continuous 5–250 cm track spanning every severity, which
+  the per-severity `DEPTH_RANGE` cannot express; on this page depth is the input that *derives*
+  severity, so a severity-scoped range would be circular.
+- **`AdminQuickReportView`** — batch depth is a slider (the number box and `cm | in` toggle stay, for
+  typing an exact figure straight off an advisory); ticking a row reveals that row's own `depth` and
+  `lasts` sliders via a shared `SliderRow`. Unticked rows keep a one-line summary — 32 always-on
+  slider pairs would be unusable to scroll during an event.
+- **Batch "How long will it last?" is now a policy, not a value.** `Auto — from each location's
+  depth` is the default; a fixed duration applies one lifetime to every row. A row falls *through* to
+  the estimate rather than snapshotting it, so moving that row's depth re-times it until the admin
+  pins a value; ⟲ clears either override.
+- `TTL_OPTIONS`' `Default (by severity)` entry is filtered out **on this page only** — it defers to
+  the server's 20/45/90-minute windows, which leaves no number for a slider to show and is far
+  shorter than an admin logging a known corridor flood wants. The single-incident modal keeps it.
+- **`App.tsx`** — `HotspotReport` gains `ttlMinutes`; `reportHotspots` reads it per row instead of
+  from a shared `opts`, and the page now receives the existing `rainActive` setting.
+
+### Backend
+- None. Still the existing `POST /reports` with `system`, `reportedAt` and `ttlMinutes` per report.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` and `npm run build` clean.
+- Against `npm run dev:mock` as ADMIN at a 1680 px viewport: ticked four hotspots and adopted their
+  recorded maxima (23 / 94 / 114 / 152 cm) with **no** TTL input, and the rows estimated 2 h / 4 h /
+  4 h / 6 h respectively — footer read `4 locations · 23–152 cm · 2h–6h live`. Posting persisted three
+  distinct `ttlMinutes` (240 / 360 / 480) with severity, road and trend still derived per depth.
+- Flipping `rainActive` extended every estimate by 2 h (2→4, 4→6, 6→8) and updated the helper copy.
+- Dragging a row's TTL slider flipped its aside to ⟲ and restored the estimate on click.
+- Layout re-measured at 320 / 360 / 414 px content widths: no horizontal overflow (a 4 px overhang
+  from the range element's default UA margin was fixed). Verified in light and dark themes.
+
+---
+
 ## [082-fix-quick-report-desktop-button] — 2026-08-29
 
 **Summary:** The Quick flood report page shipped in 081 was unreachable on desktop. Its entry point
