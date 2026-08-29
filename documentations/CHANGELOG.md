@@ -4,6 +4,71 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [081-feat-admin-quick-report] — 2026-08-29
+
+**Summary:** During a habagat event an admin could only get known flood corridors onto the map one
+at a time — `AdminReportIncidentModal` pins a single incident, and `ZoneReportModal` batches only
+over flood-prone zones that already exist in the backend, with one depth shared across the whole
+batch. This adds a standalone **Quick flood report** page built on a bundled, curated catalog of 32
+Metro Manila street-level hotspots: tick the corridors that are flooding, set the depth (in cm **or**
+inches) and how long the reports should last, hit Report, and every ticked location posts as a system
+report in one pass. Frontend-only — no API, schema or endpoint changes. baha-ui **v1.65.1 → v1.66.0**.
+
+### Frontend
+- **`src/data/floodHotspots.ts`** — the catalog. 32 rows from the 8–19 Aug 2026 habagat episode, each
+  with barangay/city, `district` in the app's "City, Province" convention, `timesReported` (distinct
+  days independently reported flooded; ≥ 3 ⇒ `tier: 1` chronic), and `maxDepthCm`, the deepest water
+  observed there. Depth categories converted once in a documented table (gutter-deep 8 in ≈ 20 cm …
+  above-head 60 in ≈ 152 cm). `maxDepthCm` is a historical high-water mark used only to prefill —
+  never presented or posted as a current reading.
+- **Coordinates** resolved once against OpenStreetMap (the Nominatim service `api/geocode.ts` already
+  calls), computing "A cor. B" crossings from street geometry, then reverse-geocoded to confirm every
+  pin lands on the named road in the named city. Where OSM carries only the arterial, the pin sits on
+  it at its closest approach to the cross street and the row carries a `pinNote` prompting a check.
+- **`src/views/AdminQuickReportView.tsx`** — full-screen admin page, opened from the TopBar admin
+  menu (`topbar.quickReport`, en + fil). Cascading province → city → tier selects plus a name/barangay
+  search; batch depth with a **cm | in** toggle (cm stays the stored unit — inches are a typing
+  convenience that converts straight back); `DepthReference` silhouette; "How long will it last?"
+  (`TTL_OPTIONS` plus a custom-hours option); per-row depth overrides seeded from each location's
+  recorded maximum; inline pin nudging via `MapPickField`; and "+ Add a hotspot" reusing `PlaceField`
+  + `reverseGeocode`. Confirm step past 10 locations, mirroring `AdminScopedWarnModal`'s bulk gate.
+- **Depth drives severity per row** — new `floodMeta.severityFromDepth(cm)` beside the existing
+  `roadFromDepth(cm)`. `ZoneReportModal` applies one severity to the whole batch; here every row
+  derives its own, so a 20 cm arterial in the same batch as a 152 cm riverside barangay is not posted
+  as High/impassable. Trend follows from `SEVERITY_PRESET[severity]`.
+- **`viewModel.alreadyReportedKeys`** — the 150 m "already reported nearby" dedup, lifted out of
+  `App.tsx` so the flood-prone zone checklist and this page share one implementation instead of two.
+- **`src/utils/hotspotStore.ts`** — pin nudges and admin-added hotspots in `localStorage`
+  (`baha_hotspots_v1`). Per-device, not synced between admins; the page says so on screen.
+- **No auto-post to Facebook/X**, deliberately — a batch of N locations must never fan out into N
+  social posts. Same rule `ZoneReportModal` follows; the flood digest remains the roundup path.
+
+### Backend
+- None. The page posts through the existing `POST /reports` with `system: true`, `reportedAt` and
+  `ttlMinutes` — all already supported.
+
+### Database
+- setup.sql appended: no
+- Migration: none — the catalog ships in the frontend bundle and admin additions live in
+  `localStorage`, so nothing new is persisted server-side.
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean.
+- Verified against `npm run dev:mock` as an ADMIN session: posted a 3-location batch at 20 cm / 61 cm
+  (entered as 24 in) / 114 cm with a 6-hour TTL and confirmed the persisted rows came back
+  `low/passable/receding`, `medium/risky/steady` and `high/impassable/rising` respectively, all
+  `ttlMinutes: 360`, `reporterTrust: system`, at the catalog's coordinates.
+- Reopening the page showed those three rows disabled as "Already reported nearby".
+- Pin nudge and reset round-tripped through `localStorage`; a custom hotspot added, persisted with a
+  correctly derived city, and removed.
+- `GET /social-posts` stayed empty for the batch. Verified in both light and dark themes.
+
+---
+
 ## [077-feat-predictive-water-level] — 2026-08-14
 
 **Summary:** A flood report was a frozen snapshot — `depthCm`, `road` and `trend` never changed
