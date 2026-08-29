@@ -4,6 +4,113 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [084-feat-admin-reopen-expired-report] — 2026-08-29
+
+**Summary:** When a report's time-to-live ran out but the water had *not* gone, an admin's only
+recourse was to file a brand-new report at the same coordinates — a duplicate row for a flood that
+never left. Expired reports collect in the Archive tab, whose rows were deliberately inert, so there
+was no way to reach one at all. Admins can now **reopen** an expired report for a lifetime estimated
+from its own depth. Shipped alongside a defect in the same block: saving an admin override never
+closed the report dialog. baha-ui **v1.67.0 → v1.68.0**.
+
+### Frontend
+- **Reopening is a re-anchor, not a TTL bump.** `expired` is
+  `status === 'resolved' || expiresInMin <= 0 || drained`, and a day-old report is also `drained`
+  (projected depth ≤ `DRAINED_CM`). So raising `ttlMinutes` alone leaves the report expired. The
+  reopen PATCH carries **`depthCm`**, which is what re-anchors `observationAnchorMs` server-side —
+  zeroing both `ageMin` and `projectedHours` so `projectedDepthCm` snaps back to the observed value
+  and `drained` clears. Documented at the definition of `expired` in `viewModel.ts`, since that is
+  the only place the three-way gate is visible.
+- **`ReportDetailCard` ADMIN OVERRIDE now splits on `report.expired`.** Live reports keep
+  `+ Extend 1 hour` and `Save depth & road override` unchanged. Expired reports instead get a
+  rationale line, a TTL slider over `TTL_STOPS_MIN`, and one primary `↻ Reopen for …` button that
+  sends depth, road and the chosen lifetime in a single PATCH. This also retires a latent defect by
+  construction: `+ Extend 1 hour` computes `effectiveTtlMin + 60` from the *original* TTL rather
+  than elapsed age, so on an expired report it granted an hour that had already passed — and could
+  not clear `drained` regardless. It is now unreachable in that state (and inert for live reports,
+  where `ageMin < effectiveTtlMin` always holds).
+- **Depth seeds from the observation when expired.** `adminDepth` seeded from `projectedDepthCm`,
+  which for an expired report is the drained figure (≈0–2 cm) — a reopen from it would be a no-op.
+  Now `report.expired ? report.depthCm : report.projectedDepthCm`.
+- **The reopen TTL is an override, not a snapshot.** `null` falls through to
+  `drainMinutes(adminDepth, rainActive)`, so correcting the depth re-times the lifetime until the
+  admin pins a value on the slider; `⟲` clears the pin. Same auto/pinned rule
+  `AdminQuickReportView`'s per-row `ttls` map follows (083) — a snapshot would have silently
+  disagreed with the depth above it.
+- **`SliderRow` extracted** from `AdminQuickReportView` to `components/panels/SliderRow.tsx` and
+  shared with the reopen control, so both get the same 320 px-safe wrap. No behavior change.
+- **`Sidebar` Archive rows are reachable for admins only.** `archiveLocked = isArchive &&
+  auth?.role !== 'ADMIN'` restores pointer/opacity and wires `onSelectReport` for admins, and swaps
+  the plain "expired" text for a `↻ Reopen` pill. Citizens see the archive exactly as before.
+  Selecting an expired report already worked — `selectedReport` resolves off `enriched`, not
+  `active`.
+- **`AdminPanel` Reports tab** gains a `Keep live for (min)` field and a row-level `↻ Reopen` that
+  opens the edit form pre-seeded with the depth estimate. Its `reports` prop widened from
+  `FloodReport[]` to `EnrichedReport[]` so the row can read `r.expired` without duplicating the
+  expiry math; `buildPayload` still picks fields by name, so no derived field can reach a PATCH
+  body. Blank TTL emits `undefined` — absent means unchanged, per the DTO.
+- **Reopen is scoped to reports that aged out, never to `status: 'resolved'`.** Those were closed on
+  purpose and are already excluded from the Archive. The AdminPanel button gates on
+  `expired && status !== 'resolved'` to match: a resolved report stays expired through `status`
+  alone, so the shortcut could not have revived it — it would have promised something it could not
+  deliver. Flipping Status back to active remains a deliberate Edit.
+- **`onReopenReport`** in `App.tsx` reuses the `updateReport` → `adminAction` → refetch path but
+  carries its own toast ("Report reopened — live again.") and bounces `tab` off `archive` on
+  success, since the report has just left that list.
+- **The dialog now closes on save.** `handleSaveOverride` awaited the PATCH and stopped — never
+  calling `onClose()`. Broken on every viewport, but only visible on mobile, where the card is a
+  bottom sheet over a full-screen scrim: the map stayed covered with the `×` scrolled off the top.
+  Both it and `handleReopen` now `try/catch{return}/finally` and call `onClose()` *after* the block,
+  since `onClose` unmounts the card. `handleExtend` is untouched — it is incremental and must not
+  close.
+- **Failed saves are no longer silent.** The button called `void handleSaveOverride()` with no
+  `catch` while `adminAction` deliberately rethrows, so a failed PATCH was an unhandled rejection
+  the admin never saw. Now an inline error in the block, with the sheet kept open.
+- `i18n`: `report.reopen` (en/fil). Admin-only copy stays English, as elsewhere.
+
+### Backend
+- **None.** `PATCH /reports/{id}` already accepts `status`, `depthCm`, `road`, `severity`, `trend`
+  and `ttlMinutes`, and `FloodReportService.update` already sets `reportedAt = now()` whenever the
+  patch carries `depthCm` — the exact re-anchor this feature needs. No new endpoint, DTO or mapping.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+- No schema change — expiry is derived entirely client-side; `ttl_minutes` and `reported_at` already
+  exist and are already written by the existing PATCH.
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` and `npm run build` clean; `dist/` rebuilt and committed.
+- **Mock needed no change.** `mock-api/server.cjs` re-anchors `reportedAt` on a `depthCm` patch for
+  system reports and bumps `updatedAt` on every patch; `observationAnchorMs` reads `reportedAt` only
+  for system reports and `updatedAt` for the rest, so its divergence from baha-api (which re-anchors
+  for every trust tier) is invisible to the client.
+- Against `npm run dev:mock` as ADMIN, with all 12 seed reports expired (seeded ~70 days back):
+  - Detail card, desktop: opened San Mateo Bridge from the Archive — ADMIN OVERRIDE showed the
+    observed **118 cm**, not the chart's "Projected now 0 cm", with `lasts` at **5h / estimated**.
+  - Depth 118 → 98 cm re-timed the estimate 5h → **4h** untouched; dragging the slider to 36h
+    flipped the aside to `⟲`; clicking `⟲` restored 4h. Matches `drainMinutes` computed
+    independently (23 cm→2h, 46→2h30m, 88→5h, 96→4h, 118/124→5h).
+  - `↻ Reopen for 4h`: card closed, toast "Report reopened — live again.", tab bounced Archive →
+    Nearby, counts `0 active` → `1 high · 1 active · 1 impassable`. `db.json` showed
+    `depthCm 98, road impassable, ttlMinutes 240`, `updatedAt` re-anchored → anchor age 0.
+  - Detail card, mobile (breakpoint forced to 390 px): the bottom sheet reopened Tumana (124 cm →
+    5h) and **closed back to the map** — the reported defect.
+  - The live report then showed the unchanged `+ Extend 1 hour` / `Save depth & road override`
+    pair, and Save closed the sheet on both mobile and desktop.
+  - With `PATCH /reports/*` forced to reject, Save kept the sheet open and rendered
+    "Could not save. Please try again." — no toast, no unhandled rejection in the console.
+  - AdminPanel: `↻ Reopen` appeared only on aged-out rows — absent on the two just reopened, and
+    absent on the two `resolved` rows (Malanday, Marikina Heights). Reopening Provident Village
+    pre-filled `Keep live for (min)` with **240** and saving took it live.
+- Signed out: Archive rows dimmed, inert, plain "expired" text, no Reopen pill — unchanged.
+
+---
+
 ## [083-feat-quick-report-sliders-per-row-ttl] — 2026-08-29
 
 **Summary:** Two gaps in the Quick flood report page. Water depth was a typed number box — the only
