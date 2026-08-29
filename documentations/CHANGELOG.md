@@ -4,6 +4,43 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [082-fix-quick-report-desktop-button] — 2026-08-29
+
+**Summary:** The Quick flood report page shipped in 081 was unreachable on desktop. Its entry point
+was added only to `TopBar`'s overflow menu, which renders inside the `isMobile` branch (viewport
+< 820 px); above that breakpoint the bar renders the admin actions as inline buttons and the overflow
+menu is not rendered at all, so an admin on a normal desktop screen had no way to open the page.
+baha-ui **v1.66.0 → v1.66.1**.
+
+### Frontend
+- **`TopBar.tsx`** — new `quickReportBtn` in the desktop action cluster beside its existing
+  `responseBtn` / `digestBtn` / `adminBtn` siblings. Amber-tinted (`--bw-tint-warn`) to read as the
+  act-now-during-an-event affordance, distinct from the blue Admin console, rose Response console and
+  sky Flood digest. The mobile overflow `MenuItem` from 081 is unchanged.
+- **`i18n.ts`** — `topbar.quick` ("Quick report" / "Mabilisang ulat"), the short inline label matching
+  the `topbar.admin` / `topbar.response` family; the menu keeps the longer `topbar.quickReport`.
+- A comment on the new button records that an admin action needs BOTH call sites — the inline desktop
+  button and the mobile menu item — so the next one added doesn't repeat this.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` and `npm run build` clean.
+- Re-verified at a 1680 px viewport (the case 081's check missed — that run was in a narrow window,
+  which is why the mobile-only entry point read as working): the ⚡ Quick report button appears in the
+  top bar for an ADMIN session and opens the page. Mobile menu path re-checked unchanged.
+
+---
+
 ## [081-feat-admin-quick-report] — 2026-08-29
 
 **Summary:** During a habagat event an admin could only get known flood corridors onto the map one
