@@ -4,6 +4,82 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [087-fix-water-depth-unit-consistency] — 2026-08-31
+
+**Summary:** Every water level in the app now reads in **both centimetres and inches**. The two
+dual-unit formatters in `src/utils/format.ts` already existed but were only half-adopted, so
+roughly half the depth-bearing surfaces showed `65 cm (26 in)` and half showed a bare `65 cm` —
+in one place inside the same sentence. Rise projections, trend rates, chart axes, the admin entry
+modals and all social/share copy never showed inches at all, and the public dashboard printed a
+duplicated unit. Frontend-only; no schema, endpoint or payload change. baha-ui **v1.68.2 → v1.68.3**.
+
+Centimetres remain the only unit stored, projected and compared — baha-api returns cm and every
+threshold in `floodMeta.ts` is cm. Inches are strictly presentation and are never fed back into a
+calculation.
+
+### Frontend
+- **`src/utils/format.ts` is now the single source for depth display.** Kept `formatDepth`
+  (`65 cm (26 in)`) and `formatDepthShort` (`65 cm · 26"`); added `formatDepthDelta`
+  (`+20 cm (8 in)`), `formatDepthDeltaShort` (`+20cm · 8"`), `formatDepthRange`
+  (`30–90 cm (12–35 in)`), `formatRate` (`5 cm/hr (2 in/hr)`), `formatDepthAxis` (`100 / 39"`,
+  for SVG ticks) and `formatDepthCompact` (`65cm (26in)`, for character-budgeted share copy).
+  A file-level comment states the unit rule and which helper to reach for.
+  - All of them round their cm input: `estDepthCm` / `projectedDepthCm` are floats and were
+    surfacing as `64.7 cm`.
+  - A private `inchesText` keeps one decimal below 10 in, so a 1 cm/hr rise reads
+    `1 cm/hr (0.4 in/hr)` instead of the nonsensical `0 in/hr`.
+- **Bug — duplicated unit.** `PublicDashboardModal.tsx` appended a literal `" cm"` to a
+  `formatDepth()` result, so the dashboard's Water Level column rendered `65 cm (26 in) cm`.
+- **Absolute depths that were cm-only** now use `formatDepth`: the map's possible-closure road
+  tooltip (`FloodMap.tsx`), the Road Conditions closure row, the detail card's
+  "Projected now …" line (which sat directly under an already-dual "Reported …" line), and the
+  depth-slider track ends in `SeverityPicker`, `ZoneReportModal` and `AdminReportIncidentModal`.
+- **Rise projections** (sidebar Area panel chip, header value, slider max, spread explainer, and
+  the detail card's "If water rises …" note) now use `formatDepthDelta` / `formatDepthDeltaShort`.
+  The rise slider's `aria-label` mentions both units.
+- **Trend copy.** `trendNote()` in `floodMeta.ts` reports `▲ Rising ~5 cm/hr (2 in/hr)` and its
+  ETA reference reads `waist depth, ~100 cm (39 in),` (comma-delimited rather than nested parens).
+- **Water-level chart.** Y-axis ticks render `100 / 39"`, the axis title reads
+  `Water depth (cm / in)`, and the plot's left margin widened 54 → 66 viewBox units to fit them.
+- **Admin entry surfaces.** `AdminQuickReportView`'s cm/in toggle now governs only what you *type*;
+  every read-only readout (slider ends, row previews, the "max …" hint, the footer summary) shows
+  both units. The Admin console's raw `depthCm` field keeps its cm-typed input and gained a live
+  `formatDepth` echo beneath it.
+- **Share / social / digest copy** (`share.ts`) — the own-report and any-report share text and the
+  admin auto-post caption use `formatDepth`; the digest's per-report line and the X `Worst:` line
+  use the compact `65cm (26in)`. Only the `Worst:` line carries a depth (the per-city tally does
+  not), so the X post grows ~7 characters and the existing degradation path absorbs it —
+  see Testing.
+- **Reuse cleanup.** `ReportDetailCard` re-declared a local `DEPTH_TICKS` duplicating the shared
+  one in `floodMeta.ts`; it now imports the shared constant.
+- Deliberately unchanged: the severity-tile hints ("Chest-deep or more · impassable") stay
+  qualitative — they describe a band, not a measured value — and `DepthReference` stays word-only
+  by design, always rendered beside a numeric readout.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none — no schema change
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean.
+- Walked the running app against the json-server mock: activity ticker, sidebar report pills,
+  report detail card (reported / projected / rise note / trend note), sidebar Area panel
+  (chip badge, header, slider max, spread copy), severity picker slider ends, water-level chart
+  (ticks + axis title, no clipping at the wider margin), public dashboard table, share text,
+  admin Quick report (both toggle states) and the Admin console depth field. A DOM sweep for
+  `N cm` not followed by an inch companion returned zero hits on every screen checked.
+- X budget: exercised `buildFloodDigest` over 1–160 reports. Worst `xCharCount` **277/280**, the
+  per-city tally never collapsed, and `xCopyText` stayed within the limit.
+
+---
+
 ## [086-fix-inapp-browser-signin-and-icons] — 2026-08-30
 
 **Summary:** FloodedArea auto-posts reports to X, so most inbound taps open the site inside **X's
