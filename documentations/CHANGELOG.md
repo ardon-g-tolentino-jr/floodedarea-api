@@ -4,6 +4,80 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [086-fix-inapp-browser-signin-and-icons] — 2026-08-30
+
+**Summary:** FloodedArea auto-posts reports to X, so most inbound taps open the site inside **X's
+in-app browser** — an Android WebView, not Chrome. Two things were broken there and only there.
+The mobile `⋯` overflow button rendered as an empty white box, and the login modal showed nothing
+where Google's sign-in button should be. Frontend-only; no schema, endpoint or payload change.
+baha-ui **v1.68.1 → v1.68.2**.
+
+| Symptom in X's in-app browser | Cause | Fix |
+|---|---|---|
+| `⋯` overflow button is a blank box | U+22EF has no glyph in that WebView's font stack | draw it as inline SVG |
+| Google sign-in button never appears | Google refuses Identity Services in embedded webviews (`disallowed_useragent`) | detect the non-render, offer a way out to the system browser |
+
+### Frontend
+- **The mobile overflow button was invisible.** Its entire visible content was the character `⋯`
+  (U+22EF MIDLINE HORIZONTAL ELLIPSIS). X's in-app browser has no glyph for it and drew nothing —
+  the button was still tappable, but a user had no way to know it was there. On a phone that menu
+  is the **only** route to Dashboard, Share, Water levels, Rescue, Support, Feedback, Features,
+  Appearance, every admin action and **Sign out**. Confirmed against the report screenshot: in the
+  same row `⌕` (U+2315) and 🔔 rendered fine — only U+22EF was blank.
+- New `src/components/Icon.tsx` draws the two icons whose glyph *is* the whole visible control
+  (`more`, `search`) as inline SVG in `currentColor`, the same approach the TopBar logo already
+  used. Call sites: the `⋯` button in `TopBar.tsx` and both `⌕` in `SearchBox.tsx`. `ICON_BTN` now
+  sets an explicit `color` — `styles.css` gives `<button>` `font-family: inherit` but not `color`,
+  so without it the SVGs would inherit the UA's `buttontext`.
+  - Glyphs that sit *beside a text label* (`⤴ ⏻ ⚙ ⚡` in the overflow menu, `⌕` in Sidebar and the
+    modals) were deliberately left alone: a missing glyph there is cosmetic, never a dead control.
+- **Google sign-in silently rendered nothing.** Google blocks Identity Services in embedded
+  webviews, so `<GoogleLogin>` never drew its button and the modal offered no working action but
+  the easily-missed "Keep browsing as guest" underline. `LoginView` now watches the GIS container
+  and, if no button appears within 2.5 s, replaces the gap with an escape hatch: what happened,
+  an **Open in browser** button (Android), **Copy link**, the written steps for iOS, and a line
+  saying guest reporting still works. While waiting it shows "Loading Google sign-in…" rather than
+  a bare gap.
+  - The trigger is the button **failing to render**, never the user agent — UA sniffing alone
+    would risk hiding a working sign-in button (the Play Store TWA shell is a real case). It also
+    covers a blocked script or a dead network. The UA only picks the wording and the action.
+  - The check looks for a `[role="button"]`/`iframe` inside the container, *not* its height: the
+    `@react-oauth/google` wrapper gives its container a fixed height from the `size` prop, so it
+    measures the same 38px whether Google filled it or ignored it.
+- New `src/utils/inAppBrowser.ts` names the host app (X, Facebook, Messenger, Instagram, TikTok,
+  or a generic webview) and, on Android, hands the current URL — path and query included, so a
+  report deep-link survives — to the default browser via an `intent://` URI with a
+  `browser_fallback_url`. No `package=` clause: pinning Chrome fails on a device without it.
+  Reuses `detectHelpBucket()` from `utils/locationHelp.ts` for the iOS/Android split.
+- `src/i18n.ts`: 10 new `login.*` keys (en + fil). The steps copy names the control in words
+  ("the three-dot menu") rather than drawing `⋮` — the very failure being fixed.
+
+### Backend
+- None.
+
+### Database
+- setup.sql appended: no
+- Migration: none (no schema change)
+- Rollback:  none
+
+### Config / Env
+- None.
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean.
+- Top bar, light and dark, at phone width: the overflow button shows the three-dot SVG and still
+  opens the menu; the collapsed and expanded search icons both show the magnifier.
+- Login modal, healthy load: the real Google button renders, no placeholder and no panel — the
+  guard does not fire.
+- Login modal with `google.accounts.id.renderButton` stubbed to a no-op (what Google effectively
+  does in a webview): after 2.5 s the panel replaces the gap. Under an X-on-Android UA it names X
+  and offers **Open in browser** + **Copy link**; under an X-on-iPhone UA it drops the button and
+  shows the Safari steps with a full-width **Copy link**. Copy link writes `location.href` and
+  flips to "Link copied". Verified in English and Filipino.
+- Remaining real-device check: open a floodedarea.com link from a post inside the X app.
+
+---
+
 ## [085-fix-monitoring-area-detection] — 2026-08-30
 
 **Summary:** A report sat near the user but outside their monitoring area. They dragged the
