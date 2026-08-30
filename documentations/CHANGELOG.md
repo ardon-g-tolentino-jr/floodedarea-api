@@ -4,6 +4,88 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [085-fix-monitoring-area-detection] — 2026-08-30
+
+**Summary:** A report sat near the user but outside their monitoring area. They dragged the
+**Monitoring area** slider wider until its circle overlapped the reported area — and the app still
+detected nothing. That turned out to be three independent bugs stacked on one gesture. There are
+three surfaces that answer *"is there flooding in my area"*, each read the monitoring area
+differently, and none of them behaved the way the UI promises. Frontend-only; no schema, endpoint
+or payload change. baha-ui **v1.68.0 → v1.68.1**.
+
+| Surface | Radius it read | Geometry | Why the slider did nothing |
+|---|---|---|---|
+| Safety banner (`computeStatus`) | hardcoded 2.5 km / 3 km | `edgeKm` (overlap ✓) | never saw the slider at all |
+| "Nearby" list | `monitorRadiusKm` ✓ | `distKm` (centre pin) | ring overlap missed |
+| Alerts / notifications | `notifyPrefs.radiusKm` — **a different slider** | `distKm` (centre pin) | never saw the slider at all |
+
+### Frontend
+- **There were two "monitoring area" radii, and the wrong one gated alerts.** The sidebar panel
+  titled `MONITORING AREA` drives `monitorRadiusKm` — the dashed map circle and the Nearby cut. The
+  🔔 Flood alerts dialog carried its own `NotifyPrefs.radiusKm`, a second 1–20 km slider sitting
+  inches away in the same panel, and **only that one gated alerts**. Widening the slider labelled
+  "monitoring area" could not, by construction, produce an alert. `NotifyPrefs.radiusKm` and its
+  slider are gone; there is now exactly one radius. The dialog keeps its master toggle and severity
+  chips and states the range read-only, pointing at the sidebar slider that sets it.
+- **`monitorRadiusKm` is now persisted** (`baha_monitor_v1`), clamped to the slider's own min/max,
+  and **migrates** a pre-085 `notifyPrefs.radiusKm` forward so an existing subscriber's alert range
+  is not silently reset to 3 km. It previously reset to 3 km on every reload — another way a
+  widened area quietly stopped existing.
+- **Report ids were burned before they were filtered.** The alert effect marked every incoming id
+  into `seenReportIds` *before* the eligibility and radius tests ran, so a report that was out of
+  range on arrival was consumed permanently: widening re-ran the effect, found nothing "new", and
+  returned. Priming did the same to everything present at page load. Split into two refs —
+  `knownReportIds` (has this report ever been observed → arrival detection) and
+  `notifiedReportIds` (did we actually alert on it → dedupe). Only a real alert marks the latter,
+  so a report that arrives out of range stays eligible for the moment the circle reaches it.
+- **Priming marks only what is already inside the circle.** Reports inside at load are in Nearby
+  and the banner from the first paint, so a later widen must not re-announce them. Reports
+  *outside* at load stay un-notified — that is exactly the report the user drags the circle out to
+  reach, and priming it would have silenced the fix for the reported case.
+- **New `inMonitorArea(report, radiusKm)`** in `viewModel.ts` — `edgeKm <= radiusKm`, i.e. true
+  circle-circle overlap. `enrichReports` already computed `edgeKm = distKm − affectedKm`, and
+  `alertsInMonitorArea` already applied this idiom to admin warnings; the report path never got it.
+  Now used by Nearby, the banner and the alert arm alike. Two rings can overlap while their centres
+  are far apart — with the seed data, Tumana's pin is 3.52 km out but its ring reaches 3.11 km, so
+  a 3.2 km circle now matches it where `main` missed it.
+- **`computeStatus` takes the user's radius** instead of hardcoded 2.5 km / 3 km (both the "stay
+  alert" gate and the rising-water spread ETA). The `edgeKm <= 0` "you are standing in it" test is
+  deliberately left alone — that is a fact about the report, not about how far out the user chose
+  to watch.
+- **Widen backfill.** Growing the area now re-scans live reports and surfaces what the widen
+  brought in as a single summary toast (`notify.areaWidened`), mirroring the existing one-shot
+  rescan when a trip stop is added. Debounced ~400 ms because a range input fires `onChange` on
+  every drag tick — undebounced, dragging 3 km → 10 km toasted once per tick. A shrink is a no-op:
+  it never un-notifies and never re-toasts. Gated on the alert master toggle, and it returns
+  *before* marking ids, so switching alerts off never silently consumes a report's eligibility.
+- Copy: `status.clearLine` no longer hardcodes "2.5 km" (now `{km}`), `sidebar.monitorDesc` says
+  the circle governs alerts too, `notify.withinDistance` retired with its slider, and
+  `notify.rangeFromSidebar` / `notify.areaWidened` added — en + fil.
+
+### Backend
+- None. No endpoint, payload or behaviour change; the monitoring area is entirely client-side
+  state in `localStorage`.
+
+### Database
+- setup.sql appended: no
+- Migration: none — no schema change
+- Rollback:  none
+
+### Config / Env
+- None. New `localStorage` key `baha_monitor_v1` (per-device, migrates from `baha_notify_v1`).
+
+### Testing
+- `npm run typecheck` clean; `npm run build` clean (only the pre-existing >500 kB chunk warning).
+- Both gates ported to a scratch harness and run side by side over the seed reports from
+  `mock-api/db.json` at the default `userLoc` (14.66, 121.12). Ring overlap catches reports the
+  centre-pin test misses at 2 / 3 / 3.2 / 4 km (Nangka, Sto. Niño, Tumana, San Mateo Bridge).
+  Load-at-1 km-then-widen-to-5 km: `main` surfaces **0** reports, this branch surfaces **6**.
+- Not yet exercised in a browser — the Chrome extension was not connected during the session.
+  Manual pass still owed: widen/shrink, reload persistence, the `baha_notify_v1` → `baha_monitor_v1`
+  migration, single-toast-per-drag debounce, and that page load with alerts on stays silent.
+
+---
+
 ## [084-feat-admin-reopen-expired-report] — 2026-08-29
 
 **Summary:** When a report's time-to-live ran out but the water had *not* gone, an admin's only
