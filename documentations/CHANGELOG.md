@@ -4,6 +4,34 @@ All notable changes to FloodedArea (baha-ui + baha-api), most recent first.
 
 ---
 
+## [088-fix-sse-broken-pipe] — 2026-10-03
+
+**Summary:** PROD logs showed `AsyncRequestNotUsableException: ServletOutputStream failed to
+flush/write: Broken pipe` WARNs and `CoyoteAdapter ... non-recycled request` INFOs. Cause: public
+`/sse/activity` clients disconnect (closed tab, mobile drop, proxy idle-kill) and the server writes
+to the dead socket. Harmless, but noisy; dead emitters also lingered until the next broadcast.
+
+### Frontend
+- none
+
+### Backend
+- `GlobalExceptionHandler`: handle `AsyncRequestNotUsableException` quietly (debug log, no body).
+- `ActivitySseService`: 25s `@Scheduled` heartbeat comment keeps idle proxies from killing the
+  stream and prunes dead emitters; shared `sendToAll` also catches `IllegalStateException`.
+
+### Database
+- setup.sql appended: no
+- Migration: none
+- Rollback: none
+
+### Config / Env
+- none (check ingress `proxy_read_timeout` / `proxy_buffering off` on `/sse/` if drops persist)
+
+### Testing
+- `mvn compile` passes. Manual: `curl -N /sse/activity` shows `connected` then `: hb` ~25s; kill curl, no WARN logged.
+
+---
+
 ## [087-fix-water-depth-unit-consistency] — 2026-08-31
 
 **Summary:** Every water level in the app now reads in **both centimetres and inches**. The two

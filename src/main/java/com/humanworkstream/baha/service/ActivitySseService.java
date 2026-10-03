@@ -1,6 +1,7 @@
 package com.humanworkstream.baha.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -42,12 +43,25 @@ public class ActivitySseService {
 
     /** Push a named event (e.g. "report-created", "report-confirmed", "rescue-created") to all clients. */
     public void broadcast(String event, Object data) {
+        sendToAll(SseEmitter.event().name(event).data(String.valueOf(data)));
+    }
+
+    /**
+     * Keep-alive comment so idle proxies don't silently kill the stream, and so clients that
+     * vanished (closed tab, dropped mobile network) are detected and pruned promptly.
+     */
+    @Scheduled(fixedDelayString = "PT25S")
+    public void heartbeat() {
+        sendToAll(SseEmitter.event().comment("hb"));
+    }
+
+    private void sendToAll(SseEmitter.SseEventBuilder event) {
         if (emitters.isEmpty()) return;
         List<SseEmitter> dead = new ArrayList<>();
         for (SseEmitter emitter : emitters) {
             try {
-                emitter.send(SseEmitter.event().name(event).data(String.valueOf(data)));
-            } catch (IOException e) {
+                emitter.send(event);
+            } catch (IOException | IllegalStateException e) {
                 dead.add(emitter);
             }
         }
